@@ -49,7 +49,13 @@ export default function Home() {
   // Real-time Dashboard state
   const [zkpDid, setZkpDid] = useState<string | null>(null);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
-  const [blockHash, setBlockHash] = useState<string | null>(null);
+  const [blockchainAudit, setBlockchainAudit] = useState<{
+    txHash: string;
+    blockNumber: number | null;
+    contractAddress: string | null;
+    network: string;
+    live: boolean;
+  } | null>(null);
 
   // Webcam Integration
   const webcamRef = useRef<Webcam>(null);
@@ -106,7 +112,7 @@ export default function Home() {
       // Success State Update
       setZkpDid(data.zkpDid);
       setAuditLogs(data.federatedLogs);
-      setBlockHash(data.blockchainAudit.blockHash);
+      setBlockchainAudit(data.blockchainAudit);
       setIsSuccess(true);
     } catch (error: any) {
       console.error(error);
@@ -161,10 +167,30 @@ export default function Home() {
                       <span className="text-emerald-400/80">{log.event}</span>
                     </div>
                   ))}
-                  <div className="pt-2 border-t border-zinc-900">
-                    <span className="text-zinc-500 block">Hyperledger Commit Hash:</span>
-                    <span className="text-amber-500/80 break-all">{blockHash}</span>
-                  </div>
+                  {blockchainAudit && (
+                    <div className="pt-3 border-t border-zinc-900 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <span className={`inline-block w-2 h-2 rounded-full ${blockchainAudit.live ? 'bg-emerald-400' : 'bg-yellow-500'}`} />
+                        <span className="text-zinc-500 text-[10px]">{blockchainAudit.network}</span>
+                      </div>
+                      <div>
+                        <span className="text-zinc-500 block text-[10px]">On-Chain TX Hash:</span>
+                        <span className="text-amber-400/90 break-all">{blockchainAudit.txHash}</span>
+                      </div>
+                      {blockchainAudit.blockNumber !== null && (
+                        <div>
+                          <span className="text-zinc-500 block text-[10px]">Block Number:</span>
+                          <span className="text-sky-400">#{blockchainAudit.blockNumber}</span>
+                        </div>
+                      )}
+                      {blockchainAudit.contractAddress && (
+                        <div>
+                          <span className="text-zinc-500 block text-[10px]">Contract Address:</span>
+                          <span className="text-indigo-400/80 break-all">{blockchainAudit.contractAddress}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
 
