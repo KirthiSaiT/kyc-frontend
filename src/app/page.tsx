@@ -13,8 +13,8 @@ import {
 import Webcam from "react-webcam";
 import Link from "next/link";
 
-import { Button }  from "@/components/ui/button";
-import { Input }   from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage,
@@ -23,26 +23,26 @@ import {
 // ── Schema ────────────────────────────────────────────────────────────────────
 
 const formSchema = z.object({
-  firstName:      z.string().min(2, "At least 2 characters."),
-  lastName:       z.string().min(2, "At least 2 characters."),
-  fathersName:    z.string().min(2, "At least 2 characters."),
-  dateOfBirth:    z.string().refine(val => {
+  firstName: z.string().min(2, "At least 2 characters."),
+  lastName: z.string().min(2, "At least 2 characters."),
+  fathersName: z.string().min(2, "At least 2 characters."),
+  dateOfBirth: z.string().refine(val => {
     const dob = new Date(val);
     const age = (Date.now() - dob.getTime()) / (1000 * 60 * 60 * 24 * 365.25);
     return !isNaN(age) && age >= 18;
   }, "You must be at least 18 years old."),
-  mobile:         z.string().length(10, "Must be exactly 10 digits.").regex(/^\d+$/, "Digits only."),
-  address:        z.string().min(10, "Enter your full present address."),
+  mobile: z.string().length(10, "Must be exactly 10 digits.").regex(/^\d+$/, "Digits only."),
+  address: z.string().min(10, "Enter your full present address."),
   identityNumber: z
     .string()
     .length(12, "Must be exactly 12 digits.")
     .regex(/^\d+$/, "Digits only."),
-  panNumber:      z
+  panNumber: z
     .string()
     .length(10, "Must be exactly 10 characters.")
     .regex(/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/i, "Invalid PAN. Format: ABCDE1234F"),
-  occupation:     z.enum(["Salaried", "Self-employed", "Business", "Student", "Retired", "Homemaker", "Other"]),
-  sourceOfFunds:  z.enum(["Salary", "Business income", "Savings", "Pension", "Investments", "Other"]),
+  occupation: z.enum(["Salaried", "Self-employed", "Business", "Student", "Retired", "Homemaker", "Other"]),
+  sourceOfFunds: z.enum(["Salary", "Business income", "Savings", "Pension", "Investments", "Other"]),
 });
 type FormValues = z.infer<typeof formSchema>;
 
@@ -92,16 +92,16 @@ const STEP_LABELS = ["Consent", "Personal Details", "Liveness Check", "Result"];
 // Primary: #003087  Accent gold: #F7941D  Light bg: #F0F4F8
 
 export default function Home() {
-  const [step, setStep]           = useState<Step>(1);
+  const [step, setStep] = useState<Step>(1);
   const [isLoading, setIsLoading] = useState(false);
-  const [apiError, setApiError]   = useState<string | null>(null);
-  const [result, setResult]       = useState<VerifyResult | null>(null);
+  const [apiError, setApiError] = useState<string | null>(null);
+  const [result, setResult] = useState<VerifyResult | null>(null);
 
   const [consents, setConsents] = useState({
     dataProcessing: false, amlScreening: false, documentRetention: false,
   });
 
-  const [documentFile, setDocumentFile]       = useState<File | null>(null);
+  const [documentFile, setDocumentFile] = useState<File | null>(null);
   const [documentPreview, setDocumentPreview] = useState<string | null>(null);
   const webcamRef = useRef<Webcam>(null);
   const [imageSrc, setImageSrc] = useState<string | null>(null);
@@ -137,22 +137,22 @@ export default function Home() {
     setStep(4);
     try {
       const fd = new FormData();
-      fd.append("firstName",      values.firstName);
-      fd.append("lastName",       values.lastName);
-      fd.append("fathersName",    values.fathersName);
-      fd.append("dateOfBirth",    values.dateOfBirth);
-      fd.append("mobile",         values.mobile);
-      fd.append("address",        values.address);
+      fd.append("firstName", values.firstName);
+      fd.append("lastName", values.lastName);
+      fd.append("fathersName", values.fathersName);
+      fd.append("dateOfBirth", values.dateOfBirth);
+      fd.append("mobile", values.mobile);
+      fd.append("address", values.address);
       fd.append("identityNumber", values.identityNumber);
-      fd.append("panNumber",      values.panNumber.toUpperCase());
-      fd.append("occupation",     values.occupation);
-      fd.append("sourceOfFunds",  values.sourceOfFunds);
+      fd.append("panNumber", values.panNumber.toUpperCase());
+      fd.append("occupation", values.occupation);
+      fd.append("sourceOfFunds", values.sourceOfFunds);
       const selfieBlob = await fetch(imageSrc).then(r => r.blob());
       fd.append("image", selfieBlob, "selfie.jpg");
       if (documentFile) fd.append("document", documentFile, documentFile.name);
       const consentList: string[] = [];
-      if (consents.dataProcessing)    consentList.push("DATA_PROCESSING");
-      if (consents.amlScreening)      consentList.push("AML_SCREENING");
+      if (consents.dataProcessing) consentList.push("DATA_PROCESSING");
+      if (consents.amlScreening) consentList.push("AML_SCREENING");
       if (consents.documentRetention) consentList.push("DOCUMENT_RETENTION");
       fd.append("consents", JSON.stringify(consentList));
       const response = await fetch("http://localhost:4000/api/onboard", { method: "POST", body: fd });
@@ -253,16 +253,16 @@ export default function Home() {
         {/* Steps */}
         <div className="flex items-center justify-center">
           {STEP_LABELS.map((label, i) => {
-            const num    = (i + 1) as Step;
+            const num = (i + 1) as Step;
             const active = step === num;
-            const done   = step > num;
+            const done = step > num;
             return (
               <div key={label} className="flex items-center">
                 <div className="flex flex-col items-center">
                   <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold border-2 transition-all
-                    ${done   ? "border-green-600 bg-green-600 text-white"
-                     : active ? "text-white border-transparent"
-                     :          "bg-white border-gray-300 text-gray-400"}`}
+                    ${done ? "border-green-600 bg-green-600 text-white"
+                      : active ? "text-white border-transparent"
+                        : "bg-white border-gray-300 text-gray-400"}`}
                     style={active ? { backgroundColor: "#003087", borderColor: "#003087" } : {}}>
                     {done ? <CheckCircle2 className="w-4 h-4" /> : num}
                   </div>
@@ -315,15 +315,15 @@ export default function Home() {
 
   function StatusBadge({ status }: { status: string }) {
     const map: Record<string, { bg: string; text: string; border: string }> = {
-      APPROVED:      { bg: "#F0FDF4", text: "#166534", border: "#BBF7D0" },
+      APPROVED: { bg: "#F0FDF4", text: "#166534", border: "#BBF7D0" },
       MANUAL_REVIEW: { bg: "#FFFBEB", text: "#92400E", border: "#FDE68A" },
-      REJECTED:      { bg: "#FEF2F2", text: "#991B1B", border: "#FECACA" },
+      REJECTED: { bg: "#FEF2F2", text: "#991B1B", border: "#FECACA" },
     };
     const s = map[status] ?? { bg: "#F9FAFB", text: "#374151", border: "#E5E7EB" };
     const icon: Record<string, React.ReactNode> = {
-      APPROVED:      <CheckCircle2 className="w-3.5 h-3.5" />,
+      APPROVED: <CheckCircle2 className="w-3.5 h-3.5" />,
       MANUAL_REVIEW: <AlertTriangle className="w-3.5 h-3.5" />,
-      REJECTED:      <XCircle className="w-3.5 h-3.5" />,
+      REJECTED: <XCircle className="w-3.5 h-3.5" />,
     };
     return (
       <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full border text-xs font-semibold"
@@ -356,25 +356,25 @@ export default function Home() {
         <div className="px-6 py-5 space-y-4">
           {[
             {
-              key:   "dataProcessing" as const,
-              icon:  <FileText className="w-4 h-4" />,
+              key: "dataProcessing" as const,
+              icon: <FileText className="w-4 h-4" />,
               label: "I consent to processing of personal data for KYC",
-              desc:  "Your identity details will be processed to verify your identity and open your account. Data is encrypted at rest (AES-256-GCM) and protected in accordance with Information Technology Act, 2000.",
-              ref:   "RBI KYC Master Direction, 2016 — Clause 16",
+              desc: "Your identity details will be processed to verify your identity and open your account. Data is encrypted at rest (AES-256-GCM) and protected in accordance with Information Technology Act, 2000.",
+              ref: "RBI KYC Master Direction, 2016 — Clause 16",
             },
             {
-              key:   "amlScreening" as const,
-              icon:  <Eye className="w-4 h-4" />,
+              key: "amlScreening" as const,
+              icon: <Eye className="w-4 h-4" />,
               label: "I consent to Anti-Money Laundering (AML) screening",
-              desc:  "Your details will be screened against RBI-mandated watchlists, UNSC sanctions lists, and PEP databases as required under Prevention of Money Laundering Act (PMLA), 2002.",
-              ref:   "PMLA 2002 · RBI AML/CFT Guidelines",
+              desc: "Your details will be screened against RBI-mandated watchlists, UNSC sanctions lists, and PEP databases as required under Prevention of Money Laundering Act (PMLA), 2002.",
+              ref: "PMLA 2002 · RBI AML/CFT Guidelines",
             },
             {
-              key:   "documentRetention" as const,
-              icon:  <Lock className="w-4 h-4" />,
+              key: "documentRetention" as const,
+              icon: <Lock className="w-4 h-4" />,
               label: "I consent to document retention for 7 years",
-              desc:  "KYC documents and verification records shall be retained for a minimum of 5 years after account closure, and a minimum of 10 years for AML records, as mandated by RBI.",
-              ref:   "RBI KYC Master Direction — Record Keeping Clause",
+              desc: "KYC documents and verification records shall be retained for a minimum of 5 years after account closure, and a minimum of 10 years for AML records, as mandated by RBI.",
+              ref: "RBI KYC Master Direction — Record Keeping Clause",
             },
           ].map(({ key, icon, label, desc, ref }) => (
             <label key={key}
@@ -598,7 +598,7 @@ export default function Home() {
                   <FormLabel><FieldLabel required>Occupation</FieldLabel></FormLabel>
                   <FormControl>
                     <select className={selectCls} {...field}>
-                      {["Salaried","Self-employed","Business","Student","Retired","Homemaker","Other"].map(o => (
+                      {["Salaried", "Self-employed", "Business", "Student", "Retired", "Homemaker", "Other"].map(o => (
                         <option key={o} value={o}>{o}</option>
                       ))}
                     </select>
@@ -611,7 +611,7 @@ export default function Home() {
                   <FormLabel><FieldLabel required>Source of Funds</FieldLabel></FormLabel>
                   <FormControl>
                     <select className={selectCls} {...field}>
-                      {["Salary","Business income","Savings","Pension","Investments","Other"].map(s => (
+                      {["Salary", "Business income", "Savings", "Pension", "Investments", "Other"].map(s => (
                         <option key={s} value={s}>{s}</option>
                       ))}
                     </select>
@@ -771,12 +771,12 @@ export default function Home() {
         {/* Pipeline steps */}
         <div className="bg-white border border-gray-200 rounded-lg px-6 py-4 space-y-2.5 w-full max-w-sm shadow-sm">
           {[
-            { label: "Liveness & face detection",    icon: <Camera className="w-3.5 h-3.5" /> },
-            { label: "Document OCR & name match",    icon: <FileText className="w-3.5 h-3.5" /> },
-            { label: "Fraud graph query (Neo4j)",    icon: <Eye className="w-3.5 h-3.5" /> },
-            { label: "Risk scoring & AML check",     icon: <ShieldCheck className="w-3.5 h-3.5" /> },
-            { label: "ZKP credential issuance",      icon: <Lock className="w-3.5 h-3.5" /> },
-            { label: "Blockchain audit logging",     icon: <Hash className="w-3.5 h-3.5" /> },
+            { label: "Liveness & face detection", icon: <Camera className="w-3.5 h-3.5" /> },
+            { label: "Document OCR & name match", icon: <FileText className="w-3.5 h-3.5" /> },
+            { label: "Fraud graph query (Neo4j)", icon: <Eye className="w-3.5 h-3.5" /> },
+            { label: "Risk scoring & AML check", icon: <ShieldCheck className="w-3.5 h-3.5" /> },
+            { label: "ZKP credential issuance", icon: <Lock className="w-3.5 h-3.5" /> },
+            { label: "Blockchain audit logging", icon: <Hash className="w-3.5 h-3.5" /> },
           ].map((s, i) => (
             <div key={i} className="flex items-center gap-3 text-sm text-gray-600">
               <div className="p-1 rounded-full" style={{ backgroundColor: "#E8EEF7", color: "#003087" }}>{s.icon}</div>
@@ -795,12 +795,12 @@ export default function Home() {
   // ─────────────────────────────────────────────────────────────────────────
 
   const { riskScore, fraudSignals, ocrResult, auditTrail, blockchainAudit,
-          zkpDid, consentsCaptured, zkpCredential, federatedLogs, pKYC } = result;
+    zkpDid, consentsCaptured, zkpCredential, federatedLogs, pKYC } = result;
 
   const statusConfig = {
-    APPROVED:      { bg: "#F0FDF4", border: "#16A34A", iconBg: "#DCFCE7", title: "Identity Verified — Credential Issued",       sub: "Your KYC is complete. A Zero-Knowledge Proof credential has been issued." },
-    MANUAL_REVIEW: { bg: "#FFFBEB", border: "#D97706", iconBg: "#FEF3C7", title: "Application Under Manual Review",              sub: "Our officer will review your application within 2 working days." },
-    REJECTED:      { bg: "#FEF2F2", border: "#DC2626", iconBg: "#FEE2E2", title: "Verification Could Not Be Completed",          sub: "Please visit your nearest IOB branch with original documents." },
+    APPROVED: { bg: "#F0FDF4", border: "#16A34A", iconBg: "#DCFCE7", title: "Identity Verified — Credential Issued", sub: "Your KYC is complete. A Zero-Knowledge Proof credential has been issued." },
+    MANUAL_REVIEW: { bg: "#FFFBEB", border: "#D97706", iconBg: "#FEF3C7", title: "Application Under Manual Review", sub: "Our officer will review your application within 2 working days." },
+    REJECTED: { bg: "#FEF2F2", border: "#DC2626", iconBg: "#FEE2E2", title: "Verification Could Not Be Completed", sub: "Please visit your nearest IOB branch with original documents." },
   }[riskScore.status] ?? { bg: "#F9FAFB", border: "#6B7280", iconBg: "#F3F4F6", title: "Processing", sub: "" };
 
   return (
@@ -814,8 +814,8 @@ export default function Home() {
             {riskScore.status === "APPROVED"
               ? <CheckCircle2 className="w-8 h-8 text-green-700" />
               : riskScore.status === "MANUAL_REVIEW"
-              ? <AlertTriangle className="w-8 h-8 text-amber-600" />
-              : <XCircle className="w-8 h-8 text-red-600" />}
+                ? <AlertTriangle className="w-8 h-8 text-amber-600" />
+                : <XCircle className="w-8 h-8 text-red-600" />}
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-3 flex-wrap">
@@ -1134,5 +1134,7 @@ export default function Home() {
         </Button>
       </div>
     </Shell>
+
+
   );
 }
