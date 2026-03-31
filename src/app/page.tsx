@@ -40,13 +40,46 @@ interface BlockchainAudit {
   txHash: string; blockNumber: number | null; contractAddress: string | null;
   network: string; live: boolean;
 }
+interface ZKPClaim { type: string; satisfied: boolean; }
+interface ZKPCredential {
+  credentialId: string;
+  issuer: string;
+  protocol: string;
+  commitment: string;
+  publicSignals: ZKPClaim[];
+  proof: { R: string; challenge: string; response: string };
+  verificationKey: string;
+  issuedAt: string;
+  expiresAt: string;
+}
+interface FederatedLog {
+  time: string;
+  node: string;
+  event: string;
+  latency_ms?: number;
+  gradient_norm?: string;
+  bundle_hash?: string;
+  participating?: string[];
+  model_version?: string;
+}
+interface PKYCStatus {
+  monitoringActive: boolean;
+  status: string;
+  nextReviewDate: string;
+  triggerConditions: string[];
+  behavioralBaseline: { establishedAt: string; deviceFingerprint: string; signals: string[] };
+  reVerificationThreshold: number;
+}
 interface VerifyResult {
   status: string; zkpDid: string; sessionId: string;
+  zkpCredential?: ZKPCredential;
   riskScore: { score: number; status: string; factors: RiskFactor[] };
   fraudSignals: string[];
   ocrResult: { extractedName: string | null; ocrConfidence: number; nameMatchScore: number | null } | null;
   consentsCaptured: string[];
   auditTrail: AuditEntry[];
+  federatedLogs: FederatedLog[];
+  pKYC?: PKYCStatus;
   blockchainAudit: BlockchainAudit;
 }
 
@@ -439,7 +472,7 @@ export default function Home() {
             )}
 
             <p className="text-xs text-zinc-400 text-center max-w-xs">
-              OpenCV Haar Cascade face detection active. Ensure your face is well-lit and centred.
+              MediaPipe FaceLandmarker (478 landmarks) + OpenCV fallback. Ensure your face is well-lit and centred.
             </p>
           </CardContent>
           <CardFooter className="flex justify-between border-t pt-4">
@@ -476,7 +509,8 @@ export default function Home() {
 
   // ── Success / Manual Review / Rejected Dashboard ──────────────────────────
 
-  const { riskScore, fraudSignals, ocrResult, auditTrail, blockchainAudit, zkpDid, consentsCaptured } = result;
+  const { riskScore, fraudSignals, ocrResult, auditTrail, blockchainAudit, zkpDid,
+          consentsCaptured, zkpCredential, federatedLogs, pKYC } = result;
   const statusColour = riskScore.status === "APPROVED"
     ? "border-emerald-500"
     : riskScore.status === "MANUAL_REVIEW"
@@ -526,24 +560,75 @@ export default function Home() {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
 
-          {/* ZKP DID */}
+          {/* ZKP Credential — Schnorr Sigma Proof */}
           <Card className="bg-zinc-900 border-zinc-800 text-zinc-100">
             <CardHeader className="pb-3">
-              <div className="flex items-center gap-2 text-zinc-300 font-semibold">
-                <Lock className="w-4 h-4 text-indigo-400" /> Decentralised Identity (DID)
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-zinc-300 font-semibold">
+                  <Lock className="w-4 h-4 text-indigo-400" /> ZKP Credential
+                </div>
+                {zkpCredential && (
+                  <span className="text-xs bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 rounded px-2 py-0.5 font-mono">
+                    {zkpCredential.protocol}
+                  </span>
+                )}
               </div>
             </CardHeader>
             <CardContent className="space-y-3">
-              <div className="bg-zinc-950 p-3 rounded-md border border-zinc-800 overflow-x-auto">
-                <pre className="text-xs text-indigo-300/80 font-mono break-all whitespace-pre-wrap">{zkpDid}</pre>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {["age_over_18", "aml_cleared", "liveness_verified"].map(claim => (
-                  <span key={claim} className="bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 rounded-full px-2 py-0.5 text-xs font-mono">
-                    ✓ {claim}
-                  </span>
-                ))}
-              </div>
+              {zkpCredential ? (
+                <>
+                  <div className="bg-zinc-950 p-3 rounded-md border border-zinc-800 space-y-1 font-mono text-xs">
+                    <div className="flex gap-2">
+                      <span className="text-zinc-600 flex-shrink-0">id</span>
+                      <span className="text-indigo-300/80 break-all">{zkpCredential.credentialId}</span>
+                    </div>
+                    <div className="flex gap-2">
+                      <span className="text-zinc-600 flex-shrink-0">C</span>
+                      <span className="text-purple-400/80 break-all">{zkpCredential.commitment.substring(0, 32)}…</span>
+                    </div>
+                    <div className="flex gap-2">
+                      <span className="text-zinc-600 flex-shrink-0">VK</span>
+                      <span className="text-emerald-400/80 break-all">{zkpCredential.verificationKey.substring(0, 32)}…</span>
+                    </div>
+                    <div className="flex gap-2">
+                      <span className="text-zinc-600 flex-shrink-0">π.R</span>
+                      <span className="text-amber-400/80">{zkpCredential.proof.R}</span>
+                    </div>
+                    <div className="flex gap-2">
+                      <span className="text-zinc-600 flex-shrink-0">π.e</span>
+                      <span className="text-amber-400/80">{zkpCredential.proof.challenge}</span>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {zkpCredential.publicSignals.map(s => (
+                      <span key={s.type}
+                        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-mono border
+                          ${s.satisfied
+                            ? "bg-indigo-500/20 text-indigo-300 border-indigo-500/30"
+                            : "bg-zinc-700/50 text-zinc-500 border-zinc-600/30 line-through"}`}>
+                        {s.satisfied ? "✓" : "✗"} {s.type}
+                      </span>
+                    ))}
+                  </div>
+                  <p className="text-xs text-zinc-600">
+                    Expires {new Date(zkpCredential.expiresAt).toLocaleDateString()}
+                    {" · "}Issued by {zkpCredential.issuer}
+                  </p>
+                </>
+              ) : (
+                <>
+                  <div className="bg-zinc-950 p-3 rounded-md border border-zinc-800 overflow-x-auto">
+                    <pre className="text-xs text-indigo-300/80 font-mono break-all whitespace-pre-wrap">{zkpDid}</pre>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {["age_over_18", "aml_cleared", "liveness_verified"].map(claim => (
+                      <span key={claim} className="bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 rounded-full px-2 py-0.5 text-xs font-mono">
+                        ✓ {claim}
+                      </span>
+                    ))}
+                  </div>
+                </>
+              )}
             </CardContent>
           </Card>
 
@@ -632,6 +717,87 @@ export default function Home() {
               )}
             </CardContent>
           </Card>
+
+          {/* Federated Learning Network */}
+          <Card className="bg-zinc-900 border-zinc-800 text-zinc-100 md:col-span-2">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-zinc-300 font-semibold">
+                  <Activity className="w-4 h-4 text-cyan-400" /> Federated Learning Network
+                </div>
+                <span className="text-xs bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 rounded px-2 py-0.5">
+                  Flower (flwr) · FedAvg · DP ε=1.2
+                </span>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {(federatedLogs && federatedLogs.length > 0) ? (
+                <div className="space-y-2 font-mono text-xs max-h-48 overflow-y-auto pr-1">
+                  {federatedLogs.map((log, i) => (
+                    <div key={i} className="flex items-start gap-3 border-l-2 border-cyan-500/30 pl-3">
+                      <span className="text-zinc-600 flex-shrink-0 w-20">
+                        {new Date(log.time).toLocaleTimeString()}
+                      </span>
+                      <span className="text-cyan-400/70 flex-shrink-0 w-32 truncate" title={log.node}>
+                        {log.node}
+                      </span>
+                      <span className="text-zinc-300">{log.event}</span>
+                      {log.latency_ms && (
+                        <span className="ml-auto text-zinc-600 flex-shrink-0">{log.latency_ms}ms</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-zinc-500">No federated logs available</p>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* pKYC Monitoring */}
+          {pKYC && (
+            <Card className="bg-zinc-900 border-zinc-800 text-zinc-100">
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-zinc-300 font-semibold">
+                    <Eye className="w-4 h-4 text-violet-400" /> Perpetual KYC (pKYC)
+                  </div>
+                  <span className={`text-xs rounded-full px-2 py-0.5 border font-semibold
+                    ${pKYC.status === 'active'
+                      ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
+                      : "bg-amber-500/20 text-amber-300 border-amber-500/30"}`}>
+                    {pKYC.status.toUpperCase()}
+                  </span>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-3 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-zinc-400">Next review</span>
+                  <span className="text-white font-mono">{pKYC.nextReviewDate}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-400">Re-verify trigger score</span>
+                  <span className="text-white font-mono">{pKYC.reVerificationThreshold}/100</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-400">Device baseline</span>
+                  <span className="text-white font-mono truncate max-w-32" title={pKYC.behavioralBaseline.deviceFingerprint}>
+                    {pKYC.behavioralBaseline.deviceFingerprint}
+                  </span>
+                </div>
+                <div>
+                  <p className="text-zinc-400 mb-1.5">Trigger conditions</p>
+                  <div className="flex flex-wrap gap-1">
+                    {pKYC.triggerConditions.map(c => (
+                      <span key={c} className="bg-violet-500/10 text-violet-300 border border-violet-500/20 rounded px-1.5 py-0.5 font-mono">
+                        {c}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Blockchain Audit */}
           <Card className="bg-zinc-900 border-zinc-800 text-zinc-100">
