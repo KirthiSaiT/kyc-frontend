@@ -23,7 +23,7 @@ export function FormField({ name, render }: { name: string; render: (field: any)
   const { control } = useFormContext();
   return (
     <FormFieldContext.Provider value={{ name }}>
-      <Controller name={name} control={control} render={render} />
+      <Controller name={name} control={control} render={render as any} />
     </FormFieldContext.Provider>
   );
 }

@@ -5,16 +5,17 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import {
-  ShieldAlert, Fingerprint, Building2, CheckCircle2, Camera, Lock,
-  Activity, RefreshCw, FileText, Shield, AlertTriangle, Info,
-  ChevronRight, XCircle, Clock, Hash, Eye,
+  ShieldCheck, Fingerprint, CheckCircle2, Camera, Lock,
+  Activity, RefreshCw, FileText, Shield, AlertTriangle,
+  ChevronRight, XCircle, Clock, Hash, Eye, User, MapPin,
+  CreditCard, Briefcase, Landmark, Info,
 } from "lucide-react";
 import Webcam from "react-webcam";
 import Link from "next/link";
 
 import { Button }  from "@/components/ui/button";
 import { Input }   from "@/components/ui/input";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage,
 } from "@/components/ui/form";
@@ -24,11 +25,24 @@ import {
 const formSchema = z.object({
   firstName:      z.string().min(2, "At least 2 characters."),
   lastName:       z.string().min(2, "At least 2 characters."),
-  email:          z.string().email("Enter a valid email."),
+  fathersName:    z.string().min(2, "At least 2 characters."),
+  dateOfBirth:    z.string().refine(val => {
+    const dob = new Date(val);
+    const age = (Date.now() - dob.getTime()) / (1000 * 60 * 60 * 24 * 365.25);
+    return !isNaN(age) && age >= 18;
+  }, "You must be at least 18 years old."),
+  mobile:         z.string().length(10, "Must be exactly 10 digits.").regex(/^\d+$/, "Digits only."),
+  address:        z.string().min(10, "Enter your full present address."),
   identityNumber: z
     .string()
     .length(12, "Must be exactly 12 digits.")
     .regex(/^\d+$/, "Digits only."),
+  panNumber:      z
+    .string()
+    .length(10, "Must be exactly 10 characters.")
+    .regex(/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/i, "Invalid PAN. Format: ABCDE1234F"),
+  occupation:     z.enum(["Salaried", "Self-employed", "Business", "Student", "Retired", "Homemaker", "Other"]),
+  sourceOfFunds:  z.enum(["Salary", "Business income", "Savings", "Pension", "Investments", "Other"]),
 });
 type FormValues = z.infer<typeof formSchema>;
 
@@ -42,30 +56,18 @@ interface BlockchainAudit {
 }
 interface ZKPClaim { type: string; satisfied: boolean; }
 interface ZKPCredential {
-  credentialId: string;
-  issuer: string;
-  protocol: string;
-  commitment: string;
+  credentialId: string; issuer: string; protocol: string; commitment: string;
   publicSignals: ZKPClaim[];
   proof: { R: string; challenge: string; response: string };
-  verificationKey: string;
-  issuedAt: string;
-  expiresAt: string;
+  verificationKey: string; issuedAt: string; expiresAt: string;
 }
 interface FederatedLog {
-  time: string;
-  node: string;
-  event: string;
-  latency_ms?: number;
-  gradient_norm?: string;
-  bundle_hash?: string;
-  participating?: string[];
-  model_version?: string;
+  time: string; node: string; event: string;
+  latency_ms?: number; gradient_norm?: string; bundle_hash?: string;
+  participating?: string[]; model_version?: string;
 }
 interface PKYCStatus {
-  monitoringActive: boolean;
-  status: string;
-  nextReviewDate: string;
+  monitoringActive: boolean; status: string; nextReviewDate: string;
   triggerConditions: string[];
   behavioralBaseline: { establishedAt: string; deviceFingerprint: string; signals: string[] };
   reVerificationThreshold: number;
@@ -84,32 +86,25 @@ interface VerifyResult {
 }
 
 type Step = 1 | 2 | 3 | 4;
+const STEP_LABELS = ["Consent", "Personal Details", "Liveness Check", "Result"];
 
-const STEP_LABELS = ["Consent", "Identity", "Liveness", "Result"];
-
-// ── Component ─────────────────────────────────────────────────────────────────
+// ── IOB brand colours (Tailwind arbitrary values) ─────────────────────────────
+// Primary: #003087  Accent gold: #F7941D  Light bg: #F0F4F8
 
 export default function Home() {
-  const [step, setStep]       = useState<Step>(1);
+  const [step, setStep]           = useState<Step>(1);
   const [isLoading, setIsLoading] = useState(false);
   const [apiError, setApiError]   = useState<string | null>(null);
   const [result, setResult]       = useState<VerifyResult | null>(null);
 
-  // Consents
   const [consents, setConsents] = useState({
-    dataProcessing:    false,
-    amlScreening:      false,
-    documentRetention: false,
+    dataProcessing: false, amlScreening: false, documentRetention: false,
   });
 
-  // Document upload
-  const [documentFile, setDocumentFile] = useState<File | null>(null);
+  const [documentFile, setDocumentFile]       = useState<File | null>(null);
   const [documentPreview, setDocumentPreview] = useState<string | null>(null);
-
-  // Webcam
   const webcamRef = useRef<Webcam>(null);
   const [imageSrc, setImageSrc] = useState<string | null>(null);
-
   const capture = useCallback(() => {
     const img = webcamRef.current?.getScreenshot();
     setImageSrc(img || null);
@@ -117,10 +112,12 @@ export default function Home() {
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
-    defaultValues: { firstName: "", lastName: "", email: "", identityNumber: "" },
+    defaultValues: {
+      firstName: "", lastName: "", fathersName: "", dateOfBirth: "",
+      mobile: "", address: "", identityNumber: "", panNumber: "",
+      occupation: "Salaried", sourceOfFunds: "Salary",
+    },
   });
-
-  // ── Document file handler ─────────────────────────────────────────────────
 
   function handleDocumentChange(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -131,778 +128,1011 @@ export default function Home() {
     reader.readAsDataURL(file);
   }
 
-  // ── Consent gate ─────────────────────────────────────────────────────────
-
   const allConsented = consents.dataProcessing && consents.amlScreening && consents.documentRetention;
 
-  // ── Submit ────────────────────────────────────────────────────────────────
-
   async function onSubmit(values: FormValues) {
-    if (!imageSrc) {
-      setApiError("Please capture your photo in Step 3.");
-      return;
-    }
+    if (!imageSrc) { setApiError("Please capture your photo first."); return; }
     setApiError(null);
     setIsLoading(true);
     setStep(4);
-
     try {
       const fd = new FormData();
       fd.append("firstName",      values.firstName);
       fd.append("lastName",       values.lastName);
-      fd.append("email",          values.email);
+      fd.append("fathersName",    values.fathersName);
+      fd.append("dateOfBirth",    values.dateOfBirth);
+      fd.append("mobile",         values.mobile);
+      fd.append("address",        values.address);
       fd.append("identityNumber", values.identityNumber);
-
-      // Selfie
+      fd.append("panNumber",      values.panNumber.toUpperCase());
+      fd.append("occupation",     values.occupation);
+      fd.append("sourceOfFunds",  values.sourceOfFunds);
       const selfieBlob = await fetch(imageSrc).then(r => r.blob());
       fd.append("image", selfieBlob, "selfie.jpg");
-
-      // Document (optional)
       if (documentFile) fd.append("document", documentFile, documentFile.name);
-
-      // Consents
       const consentList: string[] = [];
       if (consents.dataProcessing)    consentList.push("DATA_PROCESSING");
       if (consents.amlScreening)      consentList.push("AML_SCREENING");
       if (consents.documentRetention) consentList.push("DOCUMENT_RETENTION");
       fd.append("consents", JSON.stringify(consentList));
-
-      const response = await fetch("http://localhost:4000/api/onboard", {
-        method: "POST", body: fd,
-      });
+      const response = await fetch("http://localhost:4000/api/onboard", { method: "POST", body: fd });
       const data = await response.json();
-
       if (!response.ok) throw new Error(data.error || data.details || "Verification failed");
-
       setResult(data);
     } catch (err: any) {
-      setApiError(err.message || "Network error connecting to TrustGate gateway.");
+      setApiError(err.message || "Network error. Please try again.");
       setStep(3);
     } finally {
       setIsLoading(false);
     }
   }
 
-  // ── Reset ─────────────────────────────────────────────────────────────────
-
   function reset() {
     form.reset();
-    setStep(1);
-    setImageSrc(null);
-    setDocumentFile(null);
-    setDocumentPreview(null);
-    setResult(null);
-    setApiError(null);
+    setStep(1); setImageSrc(null); setDocumentFile(null);
+    setDocumentPreview(null); setResult(null); setApiError(null);
     setConsents({ dataProcessing: false, amlScreening: false, documentRetention: false });
   }
 
-  // ── Risk badge ────────────────────────────────────────────────────────────
+  // ── Shared layout shell ───────────────────────────────────────────────────
 
-  function RiskBadge({ status }: { status: string }) {
-    const map: Record<string, string> = {
-      APPROVED:      "bg-emerald-500/20 text-emerald-300 border-emerald-500/40",
-      MANUAL_REVIEW: "bg-amber-500/20  text-amber-300  border-amber-500/40",
-      REJECTED:      "bg-red-500/20    text-red-300    border-red-500/40",
+  function Shell({ children, wide }: { children: React.ReactNode; wide?: boolean }) {
+    return (
+      <div className="min-h-screen flex flex-col" style={{ backgroundColor: "#F0F4F8" }}>
+        {/* Top bank header */}
+        <header style={{ backgroundColor: "#003087" }} className="shadow-md">
+          <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+            {/* Logo */}
+            <div className="flex items-center gap-3">
+              <div className="flex items-center justify-center w-10 h-10 rounded-full bg-white shadow">
+                <Landmark className="w-5 h-5" style={{ color: "#003087" }} />
+              </div>
+              <div>
+                <div className="text-white font-bold text-lg leading-tight tracking-wide">
+                  Indian Overseas Bank
+                </div>
+                <div className="text-xs leading-tight" style={{ color: "#F7941D" }}>
+                  Good People to Grow With
+                </div>
+              </div>
+            </div>
+            {/* Right badges */}
+            <div className="hidden sm:flex items-center gap-3">
+              <span className="flex items-center gap-1 text-xs text-blue-200">
+                <Lock className="w-3 h-3" /> 256-bit SSL
+              </span>
+              <span className="text-xs bg-white/10 text-white px-2 py-0.5 rounded border border-white/20">
+                RBI Regulated
+              </span>
+              <div className="flex gap-2 ml-2">
+                <Link href="/admin" className="text-xs text-blue-200 hover:text-white border border-white/20 px-2 py-1 rounded transition-colors">
+                  Admin
+                </Link>
+                <Link href="/verify" className="text-xs text-blue-200 hover:text-white border border-white/20 px-2 py-1 rounded transition-colors">
+                  Verify DID
+                </Link>
+              </div>
+            </div>
+          </div>
+          {/* Sub-header bar */}
+          <div style={{ backgroundColor: "#002070" }} className="px-4 py-1.5">
+            <div className="max-w-6xl mx-auto text-xs text-blue-300 font-medium tracking-wide">
+              Digital KYC Onboarding — Savings Account Opening
+            </div>
+          </div>
+        </header>
+
+        {/* Body */}
+        <main className="flex-1 flex flex-col items-center py-8 px-4">
+          <div className={`w-full ${wide ? "max-w-5xl" : "max-w-2xl"}`}>
+            {children}
+          </div>
+        </main>
+
+        {/* Footer */}
+        <footer style={{ backgroundColor: "#003087" }} className="mt-auto py-3 px-4">
+          <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-1 text-xs text-blue-300">
+            <span>© 2025 Indian Overseas Bank. All rights reserved.</span>
+            <span>Regulated by Reserve Bank of India · Member of DICGC</span>
+          </div>
+        </footer>
+      </div>
+    );
+  }
+
+  // ── Step progress bar ──────────────────────────────────────────────────────
+
+  function StepBar() {
+    return (
+      <div className="mb-8">
+        {/* Section title */}
+        <div className="text-center mb-5">
+          <h2 className="text-xl font-bold text-gray-800">KYC Account Opening</h2>
+          <p className="text-sm text-gray-500 mt-1">Step {step} of 4 — {STEP_LABELS[step - 1]}</p>
+        </div>
+        {/* Steps */}
+        <div className="flex items-center justify-center">
+          {STEP_LABELS.map((label, i) => {
+            const num    = (i + 1) as Step;
+            const active = step === num;
+            const done   = step > num;
+            return (
+              <div key={label} className="flex items-center">
+                <div className="flex flex-col items-center">
+                  <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold border-2 transition-all
+                    ${done   ? "border-green-600 bg-green-600 text-white"
+                     : active ? "text-white border-transparent"
+                     :          "bg-white border-gray-300 text-gray-400"}`}
+                    style={active ? { backgroundColor: "#003087", borderColor: "#003087" } : {}}>
+                    {done ? <CheckCircle2 className="w-4 h-4" /> : num}
+                  </div>
+                  <span className={`text-xs mt-1.5 font-medium whitespace-nowrap
+                    ${active ? "text-blue-900" : done ? "text-green-700" : "text-gray-400"}`}
+                    style={active ? { color: "#003087" } : {}}>
+                    {label}
+                  </span>
+                </div>
+                {i < STEP_LABELS.length - 1 && (
+                  <div className={`w-14 sm:w-20 h-0.5 mx-2 mb-5 transition-all
+                    ${step > num ? "bg-green-500" : "bg-gray-200"}`} />
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Reusable section heading ───────────────────────────────────────────────
+
+  function SectionHeading({ icon, title }: { icon: React.ReactNode; title: string }) {
+    return (
+      <div className="flex items-center gap-2 mb-4 pb-2 border-b border-gray-200">
+        <div className="p-1.5 rounded" style={{ backgroundColor: "#E8EEF7" }}>
+          <span style={{ color: "#003087" }}>{icon}</span>
+        </div>
+        <h3 className="font-semibold text-gray-700 text-sm tracking-wide uppercase">{title}</h3>
+      </div>
+    );
+  }
+
+  // ── Field label with required marker ─────────────────────────────────────
+
+  function FieldLabel({ children, required }: { children: React.ReactNode; required?: boolean }) {
+    return (
+      <span className="text-sm font-medium text-gray-700">
+        {children}{required && <span className="text-red-500 ml-0.5">*</span>}
+      </span>
+    );
+  }
+
+  // ── Select styling ────────────────────────────────────────────────────────
+
+  const selectCls = "flex h-10 w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:border-transparent";
+
+  // ── Status badge ──────────────────────────────────────────────────────────
+
+  function StatusBadge({ status }: { status: string }) {
+    const map: Record<string, { bg: string; text: string; border: string }> = {
+      APPROVED:      { bg: "#F0FDF4", text: "#166534", border: "#BBF7D0" },
+      MANUAL_REVIEW: { bg: "#FFFBEB", text: "#92400E", border: "#FDE68A" },
+      REJECTED:      { bg: "#FEF2F2", text: "#991B1B", border: "#FECACA" },
     };
+    const s = map[status] ?? { bg: "#F9FAFB", text: "#374151", border: "#E5E7EB" };
     const icon: Record<string, React.ReactNode> = {
-      APPROVED:      <CheckCircle2 className="w-3 h-3" />,
-      MANUAL_REVIEW: <AlertTriangle className="w-3 h-3" />,
-      REJECTED:      <XCircle className="w-3 h-3" />,
+      APPROVED:      <CheckCircle2 className="w-3.5 h-3.5" />,
+      MANUAL_REVIEW: <AlertTriangle className="w-3.5 h-3.5" />,
+      REJECTED:      <XCircle className="w-3.5 h-3.5" />,
     };
     return (
-      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-semibold ${map[status] ?? "bg-zinc-700 text-zinc-300 border-zinc-600"}`}>
+      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full border text-xs font-semibold"
+        style={{ backgroundColor: s.bg, color: s.text, borderColor: s.border }}>
         {icon[status]} {status.replace("_", " ")}
       </span>
     );
   }
 
-  // ── Stepper ───────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
+  // STEP 1 — Consent
+  // ─────────────────────────────────────────────────────────────────────────
 
-  function Stepper() {
-    return (
-      <div className="flex items-center justify-center gap-0 mb-8">
-        {STEP_LABELS.map((label, i) => {
-          const num     = (i + 1) as Step;
-          const active  = step === num;
-          const done    = step > num;
-          return (
-            <div key={label} className="flex items-center">
-              <div className="flex flex-col items-center">
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold border-2 transition-all
-                  ${done   ? "bg-emerald-500 border-emerald-500 text-white"
-                   : active ? "bg-primary border-primary text-white"
-                   :          "bg-zinc-100 border-zinc-300 text-zinc-400"}`}>
-                  {done ? <CheckCircle2 className="w-4 h-4" /> : num}
+  if (step === 1) return (
+    <Shell>
+      <StepBar />
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+        {/* Card top band */}
+        <div className="px-6 py-4 border-b border-gray-100" style={{ backgroundColor: "#F7F9FC" }}>
+          <div className="flex items-center gap-2">
+            <Shield className="w-5 h-5" style={{ color: "#003087" }} />
+            <h2 className="font-bold text-gray-800">Consent Declaration</h2>
+          </div>
+          <p className="text-sm text-gray-500 mt-1">
+            As per RBI Master Direction on KYC (2016), your explicit consent is required before processing identity data.
+            All three consents are mandatory.
+          </p>
+        </div>
+
+        <div className="px-6 py-5 space-y-4">
+          {[
+            {
+              key:   "dataProcessing" as const,
+              icon:  <FileText className="w-4 h-4" />,
+              label: "I consent to processing of personal data for KYC",
+              desc:  "Your identity details will be processed to verify your identity and open your account. Data is encrypted at rest (AES-256-GCM) and protected in accordance with Information Technology Act, 2000.",
+              ref:   "RBI KYC Master Direction, 2016 — Clause 16",
+            },
+            {
+              key:   "amlScreening" as const,
+              icon:  <Eye className="w-4 h-4" />,
+              label: "I consent to Anti-Money Laundering (AML) screening",
+              desc:  "Your details will be screened against RBI-mandated watchlists, UNSC sanctions lists, and PEP databases as required under Prevention of Money Laundering Act (PMLA), 2002.",
+              ref:   "PMLA 2002 · RBI AML/CFT Guidelines",
+            },
+            {
+              key:   "documentRetention" as const,
+              icon:  <Lock className="w-4 h-4" />,
+              label: "I consent to document retention for 7 years",
+              desc:  "KYC documents and verification records shall be retained for a minimum of 5 years after account closure, and a minimum of 10 years for AML records, as mandated by RBI.",
+              ref:   "RBI KYC Master Direction — Record Keeping Clause",
+            },
+          ].map(({ key, icon, label, desc, ref }) => (
+            <label key={key}
+              className={`flex gap-4 p-4 rounded-lg border-2 cursor-pointer transition-all
+                ${consents[key]
+                  ? "border-blue-700 bg-blue-50"
+                  : "border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50"}`}>
+              <input
+                type="checkbox"
+                checked={consents[key]}
+                onChange={e => setConsents(prev => ({ ...prev, [key]: e.target.checked }))}
+                className="mt-1 w-4 h-4 flex-shrink-0 accent-blue-700"
+              />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <span style={{ color: "#003087" }}>{icon}</span>
+                  <p className="font-semibold text-gray-800 text-sm">{label}</p>
                 </div>
-                <span className={`text-xs mt-1 font-medium ${active ? "text-primary" : done ? "text-emerald-600" : "text-zinc-400"}`}>
-                  {label}
-                </span>
+                <p className="text-xs text-gray-500 leading-relaxed">{desc}</p>
+                <p className="text-xs mt-1.5 font-mono" style={{ color: "#003087" }}>
+                  Ref: {ref}
+                </p>
               </div>
-              {i < STEP_LABELS.length - 1 && (
-                <div className={`w-16 h-0.5 mx-1 mb-4 ${step > num ? "bg-emerald-400" : "bg-zinc-200"}`} />
+              {consents[key] && (
+                <CheckCircle2 className="w-5 h-5 flex-shrink-0 mt-0.5 text-blue-700" />
+              )}
+            </label>
+          ))}
+        </div>
+
+        <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex items-center justify-between">
+          <div className="flex items-center gap-2 text-xs text-gray-400">
+            <Lock className="w-3 h-3" />
+            <span>Consent records hashed and logged on blockchain for audit</span>
+          </div>
+          <Button
+            onClick={() => setStep(2)}
+            disabled={!allConsented}
+            className="px-8 text-white font-semibold"
+            style={{ backgroundColor: allConsented ? "#003087" : undefined }}
+          >
+            Proceed <ChevronRight className="ml-1 w-4 h-4" />
+          </Button>
+        </div>
+      </div>
+
+      {/* Info note */}
+      <div className="mt-4 flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
+        <Info className="w-4 h-4 flex-shrink-0 mt-0.5 text-amber-600" />
+        <span>
+          <strong>Fully Digital KYC</strong> — This process is powered by TrustGate ZKP Protocol. Your Aadhaar number
+          is never stored in plaintext. A Zero-Knowledge Proof credential is issued on completion.
+        </span>
+      </div>
+    </Shell>
+  );
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // STEP 2 — Personal Details
+  // ─────────────────────────────────────────────────────────────────────────
+
+  if (step === 2) return (
+    <Shell>
+      <StepBar />
+      <Form {...form}>
+        <form id="identity-form" className="space-y-5">
+
+          {/* Personal Information */}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <SectionHeading icon={<User className="w-4 h-4" />} title="Personal Information" />
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <FormField name="firstName" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel><FieldLabel required>First Name</FieldLabel></FormLabel>
+                    <FormControl>
+                      <Input placeholder="Priya" className="border-gray-300 focus:border-blue-700 focus:ring-blue-700" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+                <FormField name="lastName" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel><FieldLabel required>Last Name / Surname</FieldLabel></FormLabel>
+                    <FormControl>
+                      <Input placeholder="Sharma" className="border-gray-300 focus:border-blue-700 focus:ring-blue-700" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+              </div>
+
+              <FormField name="fathersName" render={({ field }) => (
+                <FormItem>
+                  <FormLabel><FieldLabel required>Father's / Guardian's Full Name</FieldLabel></FormLabel>
+                  <FormControl>
+                    <Input placeholder="Ramesh Kumar Sharma" className="border-gray-300 focus:border-blue-700 focus:ring-blue-700" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+
+              <div className="grid grid-cols-2 gap-4">
+                <FormField name="dateOfBirth" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel><FieldLabel required>Date of Birth</FieldLabel></FormLabel>
+                    <FormControl>
+                      <Input type="date" className="border-gray-300 focus:border-blue-700 focus:ring-blue-700" {...field} />
+                    </FormControl>
+                    <FormDescription>Applicant must be 18 years or older (RBI mandate).</FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+                <FormField name="mobile" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel><FieldLabel required>Mobile Number</FieldLabel></FormLabel>
+                    <FormControl>
+                      <div className="flex">
+                        <span className="inline-flex items-center px-3 rounded-l border border-r-0 border-gray-300 bg-gray-50 text-gray-500 text-sm">+91</span>
+                        <Input placeholder="9876543210" maxLength={10}
+                          className="rounded-l-none border-gray-300 focus:border-blue-700 focus:ring-blue-700" {...field} />
+                      </div>
+                    </FormControl>
+                    <FormDescription>Linked to your Aadhaar for eKYC OTP.</FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+              </div>
+            </div>
+          </div>
+
+          {/* Address */}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <SectionHeading icon={<MapPin className="w-4 h-4" />} title="Present Address" />
+            <FormField name="address" render={({ field }) => (
+              <FormItem>
+                <FormLabel><FieldLabel required>Full Present Address</FieldLabel></FormLabel>
+                <FormControl>
+                  <Input
+                    placeholder="Flat No., Building, Street, City, State – PIN Code"
+                    className="border-gray-300 focus:border-blue-700 focus:ring-blue-700"
+                    {...field}
+                  />
+                </FormControl>
+                <FormDescription>
+                  Enter your current residential address as it appears on your OVD (Officially Valid Document).
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )} />
+          </div>
+
+          {/* Identity Documents */}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <SectionHeading icon={<CreditCard className="w-4 h-4" />} title="Identity Documents (OVD)" />
+            <div className="grid grid-cols-2 gap-4">
+              <FormField name="identityNumber" render={({ field }) => (
+                <FormItem>
+                  <FormLabel><FieldLabel required>Aadhaar Number</FieldLabel></FormLabel>
+                  <FormControl>
+                    <Input placeholder="XXXX XXXX XXXX" maxLength={12}
+                      className="font-mono tracking-widest border-gray-300 focus:border-blue-700 focus:ring-blue-700"
+                      {...field} />
+                  </FormControl>
+                  <FormDescription>12-digit UID. Verified via Verhoeff checksum.</FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField name="panNumber" render={({ field }) => (
+                <FormItem>
+                  <FormLabel><FieldLabel required>PAN Number</FieldLabel></FormLabel>
+                  <FormControl>
+                    <Input placeholder="ABCDE1234F" maxLength={10}
+                      className="font-mono tracking-widest uppercase border-gray-300 focus:border-blue-700 focus:ring-blue-700"
+                      {...field}
+                      onChange={e => field.onChange(e.target.value.toUpperCase())} />
+                  </FormControl>
+                  <FormDescription>Mandatory under Income Tax Act s.139A.</FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )} />
+            </div>
+
+            {/* Document photo upload */}
+            <div className="mt-5 space-y-2">
+              <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
+                <FileText className="w-4 h-4" style={{ color: "#003087" }} />
+                Upload Identity Document Photo
+                <span className="text-gray-400 font-normal text-xs">(optional — enables OCR name match)</span>
+              </label>
+              {!documentPreview ? (
+                <label className="flex flex-col items-center justify-center w-full h-28 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer bg-gray-50 hover:bg-blue-50 hover:border-blue-400 transition-colors">
+                  <FileText className="w-6 h-6 text-gray-400 mb-1" />
+                  <span className="text-sm text-gray-500">Click to upload Aadhaar / PAN / Passport</span>
+                  <span className="text-xs text-gray-400 mt-0.5">JPG, PNG · max 5 MB</span>
+                  <input type="file" accept="image/*,application/pdf" className="hidden"
+                    onChange={handleDocumentChange} />
+                </label>
+              ) : (
+                <div className="relative rounded-lg overflow-hidden border border-gray-300">
+                  <img src={documentPreview} alt="document" className="w-full h-32 object-cover" />
+                  <button type="button"
+                    className="absolute top-2 right-2 bg-white rounded-full p-1 shadow hover:bg-gray-100"
+                    onClick={() => { setDocumentFile(null); setDocumentPreview(null); }}>
+                    <XCircle className="w-4 h-4 text-gray-600" />
+                  </button>
+                  <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-xs px-3 py-1">
+                    {documentFile?.name}
+                  </div>
+                </div>
               )}
             </div>
-          );
-        })}
-      </div>
-    );
-  }
+          </div>
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // ── STEP 1: Consent ───────────────────────────────────────────────────────
-  // ─────────────────────────────────────────────────────────────────────────
-
-  if (step === 1) {
-    return (
-      <div className="min-h-screen bg-zinc-100 flex flex-col items-center justify-center p-4">
-        <Header />
-        <Card className="w-full max-w-2xl border-t-4 border-t-primary shadow-xl bg-white">
-          <CardHeader className="pb-4">
-            <Stepper />
-            <div className="flex items-center gap-2">
-              <Shield className="w-5 h-5 text-primary" />
-              <CardTitle className="text-xl">Data Processing Consent</CardTitle>
+          {/* Financial Profile */}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <SectionHeading icon={<Briefcase className="w-4 h-4" />} title="Financial Profile (CDD / AML)" />
+            <div className="grid grid-cols-2 gap-4">
+              <FormField name="occupation" render={({ field }) => (
+                <FormItem>
+                  <FormLabel><FieldLabel required>Occupation</FieldLabel></FormLabel>
+                  <FormControl>
+                    <select className={selectCls} {...field}>
+                      {["Salaried","Self-employed","Business","Student","Retired","Homemaker","Other"].map(o => (
+                        <option key={o} value={o}>{o}</option>
+                      ))}
+                    </select>
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField name="sourceOfFunds" render={({ field }) => (
+                <FormItem>
+                  <FormLabel><FieldLabel required>Source of Funds</FieldLabel></FormLabel>
+                  <FormControl>
+                    <select className={selectCls} {...field}>
+                      {["Salary","Business income","Savings","Pension","Investments","Other"].map(s => (
+                        <option key={s} value={s}>{s}</option>
+                      ))}
+                    </select>
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
             </div>
-            <CardDescription>
-              TrustGate is required by RBI guidelines to obtain your explicit consent before processing any identity data.
-              All three consents are mandatory to proceed.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
+          </div>
+
+          {/* Navigation */}
+          <div className="flex justify-between pt-1">
+            <Button type="button" variant="outline" onClick={() => setStep(1)}
+              className="border-gray-300 text-gray-700 hover:bg-gray-50">
+              ← Back
+            </Button>
+            <Button type="button" onClick={form.handleSubmit(() => setStep(3))}
+              className="px-10 text-white font-semibold"
+              style={{ backgroundColor: "#003087" }}>
+              Continue <ChevronRight className="ml-1 w-4 h-4" />
+            </Button>
+          </div>
+        </form>
+      </Form>
+    </Shell>
+  );
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // STEP 3 — Liveness
+  // ─────────────────────────────────────────────────────────────────────────
+
+  if (step === 3) return (
+    <Shell>
+      <StepBar />
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-100" style={{ backgroundColor: "#F7F9FC" }}>
+          <div className="flex items-center gap-2">
+            <Camera className="w-5 h-5" style={{ color: "#003087" }} />
+            <h2 className="font-bold text-gray-800">Live Photo Verification</h2>
+          </div>
+          <p className="text-sm text-gray-500 mt-1">
+            Please look directly at the camera. Ensure your face is fully visible and well-lit.
+            Remove glasses if possible.
+          </p>
+        </div>
+
+        <div className="px-6 py-6 flex flex-col items-center gap-5">
+          {/* Guidelines */}
+          <div className="w-full max-w-md grid grid-cols-3 gap-2">
             {[
-              {
-                key:   "dataProcessing" as const,
-                label: "I consent to data processing for KYC purposes",
-                desc:  "Your identity information will be processed to verify your identity and open your account. Data is encrypted at rest using AES-256 and never shared without your consent.",
-              },
-              {
-                key:   "amlScreening" as const,
-                label: "I consent to Anti-Money Laundering (AML) screening",
-                desc:  "Your details will be checked against RBI-mandated watchlists and sanctions databases. This is a regulatory requirement under PMLA 2002.",
-              },
-              {
-                key:   "documentRetention" as const,
-                label: "I consent to document retention for 7 years",
-                desc:  "As per RBI Master Direction on KYC, identity documents and verification records must be retained for a minimum of 7 years after account closure.",
-              },
-            ].map(({ key, label, desc }) => (
-              <label key={key} className={`flex gap-4 p-4 rounded-lg border-2 cursor-pointer transition-all
-                ${consents[key] ? "border-primary bg-primary/5" : "border-zinc-200 bg-zinc-50 hover:border-zinc-300"}`}>
-                <input
-                  type="checkbox"
-                  checked={consents[key]}
-                  onChange={e => setConsents(prev => ({ ...prev, [key]: e.target.checked }))}
-                  className="mt-1 w-4 h-4 accent-primary flex-shrink-0"
-                />
-                <div>
-                  <p className="font-semibold text-zinc-800 text-sm">{label}</p>
-                  <p className="text-xs text-zinc-500 mt-1">{desc}</p>
-                </div>
-              </label>
+              { text: "Face fully visible", ok: true },
+              { text: "Good lighting", ok: true },
+              { text: "No glasses/hat", ok: true },
+            ].map(g => (
+              <div key={g.text} className="flex items-center gap-1.5 text-xs text-gray-600 bg-green-50 border border-green-200 rounded px-2 py-1.5">
+                <CheckCircle2 className="w-3 h-3 text-green-600 flex-shrink-0" />
+                {g.text}
+              </div>
             ))}
-          </CardContent>
-          <CardFooter className="flex justify-between items-center pt-4 border-t">
-            <p className="text-xs text-zinc-400 flex items-center gap-1">
-              <Lock className="w-3 h-3" /> Consents are hashed and logged immutably on-chain
-            </p>
-            <Button onClick={() => setStep(2)} disabled={!allConsented} className="px-8">
-              Continue <ChevronRight className="ml-1 w-4 h-4" />
-            </Button>
-          </CardFooter>
-        </Card>
-        <NavLinks />
-      </div>
-    );
-  }
+          </div>
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // ── STEP 2: Identity + Document ───────────────────────────────────────────
-  // ─────────────────────────────────────────────────────────────────────────
-
-  if (step === 2) {
-    return (
-      <div className="min-h-screen bg-zinc-100 flex flex-col items-center justify-center p-4">
-        <Header />
-        <Card className="w-full max-w-2xl border-t-4 border-t-primary shadow-xl bg-white">
-          <CardHeader className="pb-4">
-            <Stepper />
-            <div className="flex items-center gap-2">
-              <Fingerprint className="w-5 h-5 text-primary" />
-              <CardTitle className="text-xl">Identity Details & Document</CardTitle>
-            </div>
-            <CardDescription>Enter your details and upload your government-issued photo ID.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Form {...form}>
-              <form id="identity-form" className="space-y-5">
-                <div className="grid grid-cols-2 gap-4">
-                  <FormField control={form.control} name="firstName" render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>First Name</FormLabel>
-                      <FormControl><Input placeholder="Priya" {...field} /></FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )} />
-                  <FormField control={form.control} name="lastName" render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Last Name</FormLabel>
-                      <FormControl><Input placeholder="Sharma" {...field} /></FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )} />
-                </div>
-
-                <FormField control={form.control} name="email" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Email Address</FormLabel>
-                    <FormControl><Input type="email" placeholder="priya.sharma@example.com" {...field} /></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-
-                <FormField control={form.control} name="identityNumber" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="flex items-center gap-2">
-                      <Fingerprint className="w-4 h-4" /> Aadhaar Number
-                    </FormLabel>
-                    <FormControl>
-                      <Input placeholder="XXXX XXXX XXXX" maxLength={12}
-                        className="font-mono tracking-widest" {...field} />
-                    </FormControl>
-                    <FormDescription>12-digit Aadhaar. Validated via Verhoeff checksum.</FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-
-                {/* Document Upload */}
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-zinc-700 flex items-center gap-2">
-                    <FileText className="w-4 h-4" /> Identity Document Photo
-                    <span className="text-zinc-400 font-normal text-xs">(optional — enables OCR name verification)</span>
-                  </label>
-                  {!documentPreview ? (
-                    <label className="flex flex-col items-center justify-center w-full h-28 border-2 border-dashed border-zinc-300 rounded-lg cursor-pointer bg-zinc-50 hover:bg-zinc-100 transition-colors">
-                      <FileText className="w-6 h-6 text-zinc-400 mb-1" />
-                      <span className="text-sm text-zinc-500">Click to upload Aadhaar / PAN / Passport</span>
-                      <span className="text-xs text-zinc-400 mt-0.5">JPG, PNG, PDF · max 5MB</span>
-                      <input type="file" accept="image/*,application/pdf" className="hidden"
-                        onChange={handleDocumentChange} />
-                    </label>
-                  ) : (
-                    <div className="relative rounded-lg overflow-hidden border border-zinc-200">
-                      <img src={documentPreview} alt="document" className="w-full h-32 object-cover" />
-                      <button type="button"
-                        className="absolute top-2 right-2 bg-white rounded-full p-1 shadow hover:bg-zinc-100"
-                        onClick={() => { setDocumentFile(null); setDocumentPreview(null); }}>
-                        <XCircle className="w-4 h-4 text-zinc-600" />
-                      </button>
-                      <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-xs px-3 py-1">
-                        {documentFile?.name}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </form>
-            </Form>
-          </CardContent>
-          <CardFooter className="flex justify-between border-t pt-4">
-            <Button variant="outline" onClick={() => setStep(1)}>Back</Button>
-            <Button onClick={form.handleSubmit(() => setStep(3))} className="px-8">
-              Continue <ChevronRight className="ml-1 w-4 h-4" />
-            </Button>
-          </CardFooter>
-        </Card>
-        <NavLinks />
-      </div>
-    );
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // ── STEP 3: Liveness Capture ──────────────────────────────────────────────
-  // ─────────────────────────────────────────────────────────────────────────
-
-  if (step === 3) {
-    return (
-      <div className="min-h-screen bg-zinc-100 flex flex-col items-center justify-center p-4">
-        <Header />
-        <Card className="w-full max-w-2xl border-t-4 border-t-primary shadow-xl bg-white">
-          <CardHeader className="pb-4">
-            <Stepper />
-            <div className="flex items-center gap-2">
-              <Camera className="w-5 h-5 text-primary" />
-              <CardTitle className="text-xl">Liveness Verification</CardTitle>
-            </div>
-            <CardDescription>
-              Look directly at the camera in good lighting. Ensure your full face is visible.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col items-center gap-4">
-            <div className="w-full max-w-sm aspect-video bg-zinc-200 rounded-xl overflow-hidden border-2 border-dashed border-zinc-300 relative">
+          {/* Camera */}
+          <div className="w-full max-w-sm relative">
+            <div className="aspect-square rounded-xl overflow-hidden border-2 border-gray-300 bg-gray-100 shadow-inner relative">
               {!imageSrc ? (
-                <Webcam audio={false} ref={webcamRef} screenshotFormat="image/jpeg"
-                  className="w-full h-full object-cover"
-                  videoConstraints={{ facingMode: "user" }} />
+                <>
+                  <Webcam audio={false} ref={webcamRef} screenshotFormat="image/jpeg"
+                    className="w-full h-full object-cover"
+                    videoConstraints={{ facingMode: "user", aspectRatio: 1 }} />
+                  {/* Face guide overlay */}
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <div className="w-44 h-52 border-2 border-white/60 rounded-full" />
+                  </div>
+                </>
               ) : (
                 <img src={imageSrc} alt="captured" className="w-full h-full object-cover" />
               )}
             </div>
-
-            <div className="flex gap-3">
-              {!imageSrc ? (
-                <Button onClick={capture} className="w-40">
-                  <Camera className="mr-2 w-4 h-4" /> Capture Photo
-                </Button>
-              ) : (
-                <Button variant="outline" onClick={() => setImageSrc(null)} className="w-40">
-                  <RefreshCw className="mr-2 w-4 h-4" /> Retake
-                </Button>
-              )}
-            </div>
-
-            {imageSrc && (
-              <div className="flex items-center gap-2 text-emerald-600 text-sm font-medium bg-emerald-50 px-4 py-2 rounded-lg border border-emerald-200">
-                <CheckCircle2 className="w-4 h-4" /> Photo captured — ready to submit
-              </div>
+            {/* Corner markers */}
+            {!imageSrc && (
+              <>
+                <div className="absolute top-3 left-3 w-6 h-6 border-l-2 border-t-2 rounded-tl-sm" style={{ borderColor: "#003087" }} />
+                <div className="absolute top-3 right-3 w-6 h-6 border-r-2 border-t-2 rounded-tr-sm" style={{ borderColor: "#003087" }} />
+                <div className="absolute bottom-3 left-3 w-6 h-6 border-l-2 border-b-2 rounded-bl-sm" style={{ borderColor: "#003087" }} />
+                <div className="absolute bottom-3 right-3 w-6 h-6 border-r-2 border-b-2 rounded-br-sm" style={{ borderColor: "#003087" }} />
+              </>
             )}
-
-            {apiError && (
-              <div className="w-full p-3 bg-red-50 text-red-600 text-sm rounded-lg border border-red-200 flex items-center gap-2">
-                <ShieldAlert className="w-4 h-4 flex-shrink-0" /> {apiError}
-              </div>
-            )}
-
-            <p className="text-xs text-zinc-400 text-center max-w-xs">
-              MediaPipe FaceLandmarker (478 landmarks) + OpenCV fallback. Ensure your face is well-lit and centred.
-            </p>
-          </CardContent>
-          <CardFooter className="flex justify-between border-t pt-4">
-            <Button variant="outline" onClick={() => setStep(2)}>Back</Button>
-            <Button onClick={form.handleSubmit(onSubmit)} disabled={!imageSrc || isLoading} className="px-8">
-              {isLoading
-                ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2" />Processing…</>
-                : <>Submit for Verification <ChevronRight className="ml-1 w-4 h-4" /></>}
-            </Button>
-          </CardFooter>
-        </Card>
-        <NavLinks />
-      </div>
-    );
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // ── STEP 4: Result / Loading ──────────────────────────────────────────────
-  // ─────────────────────────────────────────────────────────────────────────
-
-  if (isLoading || !result) {
-    return (
-      <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center p-4">
-        <div className="text-center space-y-4">
-          <div className="w-16 h-16 border-4 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin mx-auto" />
-          <p className="text-zinc-300 font-medium">Running TrustGate verification pipeline…</p>
-          <div className="text-xs text-zinc-500 space-y-1">
-            <p>Liveness check · Document OCR · Fraud graph · Risk scoring · Blockchain logging</p>
           </div>
+
+          {/* Buttons */}
+          {!imageSrc ? (
+            <Button onClick={capture} className="w-48 text-white font-semibold py-2.5"
+              style={{ backgroundColor: "#003087" }}>
+              <Camera className="mr-2 w-4 h-4" /> Capture Photo
+            </Button>
+          ) : (
+            <div className="flex gap-3">
+              <Button variant="outline" onClick={() => setImageSrc(null)} className="border-gray-300 text-gray-700">
+                <RefreshCw className="mr-2 w-4 h-4" /> Retake
+              </Button>
+            </div>
+          )}
+
+          {imageSrc && (
+            <div className="flex items-center gap-2 text-green-700 text-sm font-medium bg-green-50 px-5 py-2.5 rounded-lg border border-green-200">
+              <CheckCircle2 className="w-4 h-4" /> Photo captured — ready for verification
+            </div>
+          )}
+
+          {apiError && (
+            <div className="w-full p-3 bg-red-50 text-red-700 text-sm rounded-lg border border-red-200 flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0" /> {apiError}
+            </div>
+          )}
+
+          <p className="text-xs text-gray-400 text-center max-w-xs">
+            Powered by MediaPipe FaceLandmarker (478 landmarks + 52 blendshapes). Your photo is
+            used only for liveness scoring and is not stored permanently.
+          </p>
+        </div>
+
+        <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-between items-center">
+          <Button variant="outline" onClick={() => setStep(2)} className="border-gray-300 text-gray-700">
+            ← Back
+          </Button>
+          <Button onClick={form.handleSubmit(onSubmit)} disabled={!imageSrc || isLoading}
+            className="px-10 text-white font-semibold"
+            style={{ backgroundColor: "#003087" }}>
+            {isLoading
+              ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2" />Processing…</>
+              : <>Submit Application <ChevronRight className="ml-1 w-4 h-4" /></>}
+          </Button>
         </div>
       </div>
-    );
-  }
+    </Shell>
+  );
 
-  // ── Success / Manual Review / Rejected Dashboard ──────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
+  // STEP 4 — Loading
+  // ─────────────────────────────────────────────────────────────────────────
 
-  const { riskScore, fraudSignals, ocrResult, auditTrail, blockchainAudit, zkpDid,
-          consentsCaptured, zkpCredential, federatedLogs, pKYC } = result;
-  const statusColour = riskScore.status === "APPROVED"
-    ? "border-emerald-500"
-    : riskScore.status === "MANUAL_REVIEW"
-    ? "border-amber-500"
-    : "border-red-500";
+  if (isLoading || !result) return (
+    <Shell>
+      <div className="flex flex-col items-center justify-center py-24 gap-6">
+        {/* Animated logo */}
+        <div className="relative w-20 h-20">
+          <div className="absolute inset-0 rounded-full border-4 border-blue-100" />
+          <div className="absolute inset-0 rounded-full border-4 border-t-blue-800 animate-spin" style={{ borderTopColor: "#003087" }} />
+          <div className="absolute inset-0 flex items-center justify-center">
+            <Landmark className="w-8 h-8" style={{ color: "#003087" }} />
+          </div>
+        </div>
+        <div className="text-center">
+          <p className="text-lg font-semibold text-gray-800">Processing Your Application</p>
+          <p className="text-sm text-gray-500 mt-1">Please wait while we verify your identity</p>
+        </div>
+        {/* Pipeline steps */}
+        <div className="bg-white border border-gray-200 rounded-lg px-6 py-4 space-y-2.5 w-full max-w-sm shadow-sm">
+          {[
+            { label: "Liveness & face detection",    icon: <Camera className="w-3.5 h-3.5" /> },
+            { label: "Document OCR & name match",    icon: <FileText className="w-3.5 h-3.5" /> },
+            { label: "Fraud graph query (Neo4j)",    icon: <Eye className="w-3.5 h-3.5" /> },
+            { label: "Risk scoring & AML check",     icon: <ShieldCheck className="w-3.5 h-3.5" /> },
+            { label: "ZKP credential issuance",      icon: <Lock className="w-3.5 h-3.5" /> },
+            { label: "Blockchain audit logging",     icon: <Hash className="w-3.5 h-3.5" /> },
+          ].map((s, i) => (
+            <div key={i} className="flex items-center gap-3 text-sm text-gray-600">
+              <div className="p-1 rounded-full" style={{ backgroundColor: "#E8EEF7", color: "#003087" }}>{s.icon}</div>
+              <span>{s.label}</span>
+              <div className="ml-auto w-4 h-4 border-2 border-blue-200 border-t-blue-700 rounded-full animate-spin"
+                style={{ borderTopColor: "#003087", animationDelay: `${i * 0.15}s` }} />
+            </div>
+          ))}
+        </div>
+      </div>
+    </Shell>
+  );
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // STEP 4 — Result Dashboard
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const { riskScore, fraudSignals, ocrResult, auditTrail, blockchainAudit,
+          zkpDid, consentsCaptured, zkpCredential, federatedLogs, pKYC } = result;
+
+  const statusConfig = {
+    APPROVED:      { bg: "#F0FDF4", border: "#16A34A", iconBg: "#DCFCE7", title: "Identity Verified — Credential Issued",       sub: "Your KYC is complete. A Zero-Knowledge Proof credential has been issued." },
+    MANUAL_REVIEW: { bg: "#FFFBEB", border: "#D97706", iconBg: "#FEF3C7", title: "Application Under Manual Review",              sub: "Our officer will review your application within 2 working days." },
+    REJECTED:      { bg: "#FEF2F2", border: "#DC2626", iconBg: "#FEE2E2", title: "Verification Could Not Be Completed",          sub: "Please visit your nearest IOB branch with original documents." },
+  }[riskScore.status] ?? { bg: "#F9FAFB", border: "#6B7280", iconBg: "#F3F4F6", title: "Processing", sub: "" };
 
   return (
-    <div className="min-h-screen bg-zinc-950 flex flex-col items-center p-4 py-8">
-      <div className="w-full max-w-5xl space-y-6">
-
-        {/* Header */}
-        <div className="flex items-center justify-between text-zinc-100">
-          <div className="flex items-center gap-3">
-            <Building2 className="w-7 h-7 text-emerald-500" />
-            <h1 className="text-2xl font-bold tracking-tight">TrustGate Verifier Node</h1>
+    <Shell wide>
+      {/* Status banner */}
+      <div className="rounded-xl overflow-hidden shadow-sm border mb-6"
+        style={{ backgroundColor: statusConfig.bg, borderColor: statusConfig.border }}>
+        <div className="px-6 py-5 flex items-center gap-5">
+          <div className="w-14 h-14 rounded-full flex items-center justify-center flex-shrink-0"
+            style={{ backgroundColor: statusConfig.iconBg }}>
+            {riskScore.status === "APPROVED"
+              ? <CheckCircle2 className="w-8 h-8 text-green-700" />
+              : riskScore.status === "MANUAL_REVIEW"
+              ? <AlertTriangle className="w-8 h-8 text-amber-600" />
+              : <XCircle className="w-8 h-8 text-red-600" />}
           </div>
-          <div className="flex gap-2">
-            <Link href="/verify" className="text-xs text-zinc-400 hover:text-zinc-200 border border-zinc-700 px-3 py-1.5 rounded-md">
-              Verify DID
-            </Link>
-            <Link href="/admin" className="text-xs text-zinc-400 hover:text-zinc-200 border border-zinc-700 px-3 py-1.5 rounded-md">
-              Admin
-            </Link>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-3 flex-wrap">
+              <h2 className="text-lg font-bold text-gray-900">{statusConfig.title}</h2>
+              <StatusBadge status={riskScore.status} />
+            </div>
+            <p className="text-sm text-gray-600 mt-1">{statusConfig.sub}</p>
+            <p className="text-xs text-gray-400 mt-1 font-mono">Session ID: {result.sessionId}</p>
+          </div>
+          <div className="hidden md:flex flex-col items-end gap-1">
+            <span className="text-3xl font-bold" style={{ color: "#003087" }}>{riskScore.score}</span>
+            <span className="text-xs text-gray-500">Risk Score / 100</span>
+          </div>
+        </div>
+        {/* Risk bar */}
+        <div className="h-1.5 bg-gray-200">
+          <div className="h-full transition-all"
+            style={{
+              width: `${riskScore.score}%`,
+              backgroundColor: riskScore.score <= 30 ? "#16A34A" : riskScore.score <= 60 ? "#D97706" : "#DC2626",
+            }} />
+        </div>
+      </div>
+
+      {/* 3-column grid */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-5">
+
+        {/* Risk Factors */}
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2" style={{ backgroundColor: "#F7F9FC" }}>
+            <AlertTriangle className="w-4 h-4 text-amber-600" />
+            <span className="font-semibold text-sm text-gray-700">Risk Analysis</span>
+            <span className="ml-auto text-xs font-mono text-gray-500">{riskScore.score}/100</span>
+          </div>
+          <div className="p-4 space-y-2.5">
+            {riskScore.factors.map((f, i) => (
+              <div key={i} className={`p-2.5 rounded-lg border text-xs ${f.triggered
+                ? "bg-red-50 border-red-200 text-red-800"
+                : "bg-green-50 border-green-200 text-green-800"}`}>
+                <div className="flex items-start gap-2">
+                  {f.triggered
+                    ? <AlertTriangle className="w-3 h-3 flex-shrink-0 mt-0.5 text-red-600" />
+                    : <CheckCircle2 className="w-3 h-3 flex-shrink-0 mt-0.5 text-green-600" />}
+                  <div className="flex-1 min-w-0">
+                    <div className="font-semibold leading-tight">{f.factor}</div>
+                    {f.detail && <div className="text-gray-500 mt-0.5 leading-tight">{f.detail}</div>}
+                  </div>
+                  {f.triggered && <span className="font-bold text-red-600 flex-shrink-0">+{f.weight}</span>}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
 
-        {/* Status Banner */}
-        <Card className={`border-t-4 ${statusColour} bg-zinc-900 border-zinc-800 text-zinc-100`}>
-          <CardHeader className="flex flex-row items-center gap-4 pb-3">
-            {riskScore.status === "APPROVED"
-              ? <CheckCircle2 className="w-10 h-10 text-emerald-500 flex-shrink-0" />
-              : riskScore.status === "MANUAL_REVIEW"
-              ? <AlertTriangle className="w-10 h-10 text-amber-500 flex-shrink-0" />
-              : <XCircle className="w-10 h-10 text-red-500 flex-shrink-0" />}
-            <div>
-              <CardTitle className="text-lg">
-                {riskScore.status === "APPROVED"   && "Identity Verified — Credential Issued"}
-                {riskScore.status === "MANUAL_REVIEW" && "Flagged for Manual Review"}
-                {riskScore.status === "REJECTED"   && "Verification Rejected"}
-              </CardTitle>
-              <CardDescription className="text-zinc-400">
-                Risk score: <span className="font-bold text-white">{riskScore.score}/100</span> · Session {result.sessionId?.substring(0, 8)}
-              </CardDescription>
-            </div>
-          </CardHeader>
-        </Card>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-
-          {/* ZKP Credential — Schnorr Sigma Proof */}
-          <Card className="bg-zinc-900 border-zinc-800 text-zinc-100">
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-zinc-300 font-semibold">
-                  <Lock className="w-4 h-4 text-indigo-400" /> ZKP Credential
+        {/* ZKP Credential */}
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2" style={{ backgroundColor: "#F7F9FC" }}>
+            <Lock className="w-4 h-4 text-indigo-600" />
+            <span className="font-semibold text-sm text-gray-700">ZKP Credential</span>
+            {zkpCredential && (
+              <span className="ml-auto text-xs bg-indigo-100 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded font-mono">
+                {zkpCredential.protocol}
+              </span>
+            )}
+          </div>
+          <div className="p-4 space-y-3">
+            {zkpCredential ? (
+              <>
+                <div className="bg-gray-50 rounded-lg border border-gray-200 p-3 space-y-1.5 font-mono text-xs">
+                  <div className="flex gap-2">
+                    <span className="text-gray-400 flex-shrink-0">id</span>
+                    <span className="text-indigo-700 break-all text-xs">{zkpCredential.credentialId.substring(0, 36)}…</span>
+                  </div>
+                  <div className="flex gap-2">
+                    <span className="text-gray-400 flex-shrink-0">C</span>
+                    <span className="text-purple-700 break-all">{zkpCredential.commitment.substring(0, 28)}…</span>
+                  </div>
+                  <div className="flex gap-2">
+                    <span className="text-gray-400 flex-shrink-0">VK</span>
+                    <span className="text-green-700 break-all">{zkpCredential.verificationKey.substring(0, 28)}…</span>
+                  </div>
                 </div>
-                {zkpCredential && (
-                  <span className="text-xs bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 rounded px-2 py-0.5 font-mono">
-                    {zkpCredential.protocol}
-                  </span>
-                )}
+                <div className="flex flex-wrap gap-1.5">
+                  {zkpCredential.publicSignals.map(s => (
+                    <span key={s.type}
+                      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-mono border
+                        ${s.satisfied
+                          ? "bg-indigo-50 text-indigo-700 border-indigo-200"
+                          : "bg-gray-100 text-gray-400 border-gray-200 line-through"}`}>
+                      {s.satisfied ? "✓" : "✗"} {s.type}
+                    </span>
+                  ))}
+                </div>
+                <p className="text-xs text-gray-400">
+                  Expires {new Date(zkpCredential.expiresAt).toLocaleDateString("en-IN")}
+                  {" · "}{zkpCredential.issuer}
+                </p>
+              </>
+            ) : (
+              <div className="bg-gray-50 rounded-lg border border-gray-200 p-3 overflow-x-auto">
+                <pre className="text-xs text-indigo-700 font-mono break-all whitespace-pre-wrap">{zkpDid}</pre>
               </div>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {zkpCredential ? (
-                <>
-                  <div className="bg-zinc-950 p-3 rounded-md border border-zinc-800 space-y-1 font-mono text-xs">
-                    <div className="flex gap-2">
-                      <span className="text-zinc-600 flex-shrink-0">id</span>
-                      <span className="text-indigo-300/80 break-all">{zkpCredential.credentialId}</span>
-                    </div>
-                    <div className="flex gap-2">
-                      <span className="text-zinc-600 flex-shrink-0">C</span>
-                      <span className="text-purple-400/80 break-all">{zkpCredential.commitment.substring(0, 32)}…</span>
-                    </div>
-                    <div className="flex gap-2">
-                      <span className="text-zinc-600 flex-shrink-0">VK</span>
-                      <span className="text-emerald-400/80 break-all">{zkpCredential.verificationKey.substring(0, 32)}…</span>
-                    </div>
-                    <div className="flex gap-2">
-                      <span className="text-zinc-600 flex-shrink-0">π.R</span>
-                      <span className="text-amber-400/80">{zkpCredential.proof.R}</span>
-                    </div>
-                    <div className="flex gap-2">
-                      <span className="text-zinc-600 flex-shrink-0">π.e</span>
-                      <span className="text-amber-400/80">{zkpCredential.proof.challenge}</span>
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {zkpCredential.publicSignals.map(s => (
-                      <span key={s.type}
-                        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-mono border
-                          ${s.satisfied
-                            ? "bg-indigo-500/20 text-indigo-300 border-indigo-500/30"
-                            : "bg-zinc-700/50 text-zinc-500 border-zinc-600/30 line-through"}`}>
-                        {s.satisfied ? "✓" : "✗"} {s.type}
-                      </span>
-                    ))}
-                  </div>
-                  <p className="text-xs text-zinc-600">
-                    Expires {new Date(zkpCredential.expiresAt).toLocaleDateString()}
-                    {" · "}Issued by {zkpCredential.issuer}
-                  </p>
-                </>
-              ) : (
-                <>
-                  <div className="bg-zinc-950 p-3 rounded-md border border-zinc-800 overflow-x-auto">
-                    <pre className="text-xs text-indigo-300/80 font-mono break-all whitespace-pre-wrap">{zkpDid}</pre>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {["age_over_18", "aml_cleared", "liveness_verified"].map(claim => (
-                      <span key={claim} className="bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 rounded-full px-2 py-0.5 text-xs font-mono">
-                        ✓ {claim}
-                      </span>
-                    ))}
-                  </div>
-                </>
-              )}
-            </CardContent>
-          </Card>
+            )}
+          </div>
+        </div>
 
-          {/* Risk Score */}
-          <Card className="bg-zinc-900 border-zinc-800 text-zinc-100">
-            <CardHeader className="pb-3">
-              <div className="flex items-center gap-2 text-zinc-300 font-semibold">
-                <AlertTriangle className="w-4 h-4 text-amber-400" /> Risk Analysis
+        {/* Blockchain Audit */}
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2" style={{ backgroundColor: "#F7F9FC" }}>
+            <Hash className="w-4 h-4 text-amber-600" />
+            <span className="font-semibold text-sm text-gray-700">Blockchain Audit</span>
+            <span className={`ml-auto w-2 h-2 rounded-full flex-shrink-0 ${blockchainAudit.live ? "bg-green-500" : "bg-amber-400"}`} />
+          </div>
+          <div className="p-4 space-y-3 font-mono text-xs">
+            <div>
+              <p className="text-gray-500 mb-0.5 font-sans text-xs">Network</p>
+              <p className="text-gray-800 font-medium font-sans text-xs">{blockchainAudit.network}</p>
+            </div>
+            <div>
+              <p className="text-gray-500 mb-0.5">TX Hash</p>
+              <p className="text-amber-700 break-all leading-relaxed">{blockchainAudit.txHash}</p>
+            </div>
+            {blockchainAudit.blockNumber && (
+              <div>
+                <p className="text-gray-500 mb-0.5">Block Number</p>
+                <p className="text-blue-700">#{blockchainAudit.blockNumber}</p>
               </div>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-3xl font-bold text-white">{riskScore.score}<span className="text-lg text-zinc-400">/100</span></span>
-                <RiskBadge status={riskScore.status} />
+            )}
+            {blockchainAudit.contractAddress && (
+              <div>
+                <p className="text-gray-500 mb-0.5">Smart Contract</p>
+                <p className="text-indigo-700 break-all">{blockchainAudit.contractAddress}</p>
               </div>
-              <div className="w-full h-2 bg-zinc-800 rounded-full overflow-hidden">
-                <div className={`h-full rounded-full transition-all ${riskScore.score <= 30 ? "bg-emerald-500" : riskScore.score <= 60 ? "bg-amber-500" : "bg-red-500"}`}
-                  style={{ width: `${riskScore.score}%` }} />
-              </div>
-              <div className="space-y-2">
-                {riskScore.factors.map((f, i) => (
-                  <div key={i} className={`flex items-start gap-2 text-xs p-2 rounded ${f.triggered ? "bg-red-500/10 border border-red-500/20" : "bg-zinc-800/50"}`}>
-                    {f.triggered
-                      ? <AlertTriangle className="w-3 h-3 text-red-400 flex-shrink-0 mt-0.5" />
-                      : <CheckCircle2 className="w-3 h-3 text-emerald-400 flex-shrink-0 mt-0.5" />}
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Second row */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-5">
+
+        {/* Federated Learning */}
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between" style={{ backgroundColor: "#F7F9FC" }}>
+            <div className="flex items-center gap-2">
+              <Activity className="w-4 h-4 text-cyan-600" />
+              <span className="font-semibold text-sm text-gray-700">Federated Learning Network</span>
+            </div>
+            <span className="text-xs bg-cyan-50 text-cyan-700 border border-cyan-200 rounded px-2 py-0.5">
+              FedAvg · DP ε=1.2
+            </span>
+          </div>
+          <div className="p-4">
+            {federatedLogs?.length > 0 ? (
+              <div className="space-y-2 font-mono text-xs max-h-48 overflow-y-auto pr-1">
+                {federatedLogs.map((log, i) => (
+                  <div key={i} className="flex items-start gap-2 border-l-2 border-cyan-200 pl-3 py-0.5">
+                    <span className="text-gray-400 flex-shrink-0 w-18 text-xs">
+                      {new Date(log.time).toLocaleTimeString("en-IN")}
+                    </span>
                     <div>
-                      <span className={f.triggered ? "text-red-300" : "text-zinc-400"}>{f.factor}</span>
-                      {f.detail && <span className="text-zinc-500 ml-1">— {f.detail}</span>}
+                      <span className="text-cyan-700 block text-xs truncate max-w-xs">{log.node}</span>
+                      <span className="text-gray-600">{log.event}</span>
                     </div>
-                    {f.triggered && <span className="ml-auto text-red-400 font-bold flex-shrink-0">+{f.weight}</span>}
+                    {log.latency_ms && <span className="ml-auto text-gray-400 flex-shrink-0">{log.latency_ms}ms</span>}
                   </div>
                 ))}
               </div>
-            </CardContent>
-          </Card>
+            ) : (
+              <p className="text-xs text-gray-400">No federated logs available.</p>
+            )}
+          </div>
+        </div>
 
-          {/* OCR + Name Match */}
-          {ocrResult && (
-            <Card className="bg-zinc-900 border-zinc-800 text-zinc-100">
-              <CardHeader className="pb-3">
-                <div className="flex items-center gap-2 text-zinc-300 font-semibold">
-                  <FileText className="w-4 h-4 text-sky-400" /> Document OCR
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-zinc-400">Extracted name</span>
-                  <span className="text-white font-mono">{ocrResult.extractedName ?? "—"}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-zinc-400">OCR confidence</span>
-                  <span className="text-white">{((ocrResult.ocrConfidence ?? 0) * 100).toFixed(0)}%</span>
-                </div>
-                {ocrResult.nameMatchScore !== null && (
-                  <div className="flex justify-between">
-                    <span className="text-zinc-400">Name match score</span>
-                    <span className={`font-semibold ${(ocrResult.nameMatchScore ?? 0) >= 0.6 ? "text-emerald-400" : "text-red-400"}`}>
-                      {((ocrResult.nameMatchScore ?? 0) * 100).toFixed(0)}%
-                    </span>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          )}
+        {/* Audit Trail + Fraud Signals + pKYC */}
+        <div className="space-y-5">
 
           {/* Fraud Signals */}
-          <Card className="bg-zinc-900 border-zinc-800 text-zinc-100">
-            <CardHeader className="pb-3">
-              <div className="flex items-center gap-2 text-zinc-300 font-semibold">
-                <Eye className="w-4 h-4 text-purple-400" /> Fraud Graph Signals
-              </div>
-            </CardHeader>
-            <CardContent>
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+            <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2" style={{ backgroundColor: "#F7F9FC" }}>
+              <Eye className="w-4 h-4 text-purple-600" />
+              <span className="font-semibold text-sm text-gray-700">Fraud Graph (Neo4j)</span>
+            </div>
+            <div className="p-4">
               {fraudSignals.length === 0 ? (
-                <div className="flex items-center gap-2 text-emerald-400 text-sm">
-                  <CheckCircle2 className="w-4 h-4" /> No fraud signals detected in Neo4j graph
+                <div className="flex items-center gap-2 text-green-700 text-sm bg-green-50 px-3 py-2 rounded-lg border border-green-200">
+                  <CheckCircle2 className="w-4 h-4" /> No fraud signals detected
                 </div>
               ) : (
                 <div className="space-y-2">
                   {fraudSignals.map((sig, i) => (
-                    <div key={i} className="flex items-center gap-2 bg-red-500/10 border border-red-500/20 rounded px-3 py-2 text-xs text-red-300">
+                    <div key={i} className="flex items-center gap-2 bg-red-50 border border-red-200 rounded px-3 py-1.5 text-xs text-red-700">
                       <AlertTriangle className="w-3 h-3 flex-shrink-0" /> {sig}
                     </div>
                   ))}
                 </div>
               )}
-            </CardContent>
-          </Card>
+            </div>
+          </div>
 
-          {/* Federated Learning Network */}
-          <Card className="bg-zinc-900 border-zinc-800 text-zinc-100 md:col-span-2">
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-zinc-300 font-semibold">
-                  <Activity className="w-4 h-4 text-cyan-400" /> Federated Learning Network
+          {/* Audit Trail */}
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+            <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2" style={{ backgroundColor: "#F7F9FC" }}>
+              <Clock className="w-4 h-4 text-green-600" />
+              <span className="font-semibold text-sm text-gray-700">Audit Trail</span>
+            </div>
+            <div className="p-4 max-h-44 overflow-y-auto space-y-1.5">
+              {auditTrail.map((e, i) => (
+                <div key={i} className="flex items-center gap-2 text-xs">
+                  <span className="text-gray-400 w-20 flex-shrink-0 font-mono">
+                    {new Date(e.time).toLocaleTimeString("en-IN")}
+                  </span>
+                  <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />
+                  <span className="text-gray-600 font-mono">{e.eventType.replace(/_/g, " ")}</span>
                 </div>
-                <span className="text-xs bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 rounded px-2 py-0.5">
-                  Flower (flwr) · FedAvg · DP ε=1.2
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* pKYC + Consents row */}
+      {(pKYC || consentsCaptured.length > 0) && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-5">
+          {pKYC && (
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+              <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between" style={{ backgroundColor: "#F7F9FC" }}>
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-violet-600" />
+                  <span className="font-semibold text-sm text-gray-700">Perpetual KYC (pKYC)</span>
+                </div>
+                <span className={`text-xs px-2 py-0.5 rounded-full border font-semibold
+                  ${pKYC.status === "active"
+                    ? "bg-green-50 text-green-700 border-green-200"
+                    : "bg-amber-50 text-amber-700 border-amber-200"}`}>
+                  {pKYC.status.toUpperCase()}
                 </span>
               </div>
-            </CardHeader>
-            <CardContent>
-              {(federatedLogs && federatedLogs.length > 0) ? (
-                <div className="space-y-2 font-mono text-xs max-h-48 overflow-y-auto pr-1">
-                  {federatedLogs.map((log, i) => (
-                    <div key={i} className="flex items-start gap-3 border-l-2 border-cyan-500/30 pl-3">
-                      <span className="text-zinc-600 flex-shrink-0 w-20">
-                        {new Date(log.time).toLocaleTimeString()}
-                      </span>
-                      <span className="text-cyan-400/70 flex-shrink-0 w-32 truncate" title={log.node}>
-                        {log.node}
-                      </span>
-                      <span className="text-zinc-300">{log.event}</span>
-                      {log.latency_ms && (
-                        <span className="ml-auto text-zinc-600 flex-shrink-0">{log.latency_ms}ms</span>
-                      )}
-                    </div>
-                  ))}
+              <div className="p-4 space-y-2.5 text-sm">
+                <div className="flex justify-between border-b border-gray-100 pb-2">
+                  <span className="text-gray-500 text-xs">Next review date</span>
+                  <span className="font-mono text-xs font-semibold text-gray-800">{pKYC.nextReviewDate}</span>
                 </div>
-              ) : (
-                <p className="text-xs text-zinc-500">No federated logs available</p>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* pKYC Monitoring */}
-          {pKYC && (
-            <Card className="bg-zinc-900 border-zinc-800 text-zinc-100">
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-zinc-300 font-semibold">
-                    <Eye className="w-4 h-4 text-violet-400" /> Perpetual KYC (pKYC)
-                  </div>
-                  <span className={`text-xs rounded-full px-2 py-0.5 border font-semibold
-                    ${pKYC.status === 'active'
-                      ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
-                      : "bg-amber-500/20 text-amber-300 border-amber-500/30"}`}>
-                    {pKYC.status.toUpperCase()}
-                  </span>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-3 text-xs">
-                <div className="flex justify-between">
-                  <span className="text-zinc-400">Next review</span>
-                  <span className="text-white font-mono">{pKYC.nextReviewDate}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-zinc-400">Re-verify trigger score</span>
-                  <span className="text-white font-mono">{pKYC.reVerificationThreshold}/100</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-zinc-400">Device baseline</span>
-                  <span className="text-white font-mono truncate max-w-32" title={pKYC.behavioralBaseline.deviceFingerprint}>
-                    {pKYC.behavioralBaseline.deviceFingerprint}
-                  </span>
+                <div className="flex justify-between border-b border-gray-100 pb-2">
+                  <span className="text-gray-500 text-xs">Re-verify trigger</span>
+                  <span className="font-mono text-xs font-semibold text-gray-800">{pKYC.reVerificationThreshold}/100</span>
                 </div>
                 <div>
-                  <p className="text-zinc-400 mb-1.5">Trigger conditions</p>
+                  <p className="text-xs text-gray-500 mb-1.5">Monitoring triggers</p>
                   <div className="flex flex-wrap gap-1">
                     {pKYC.triggerConditions.map(c => (
-                      <span key={c} className="bg-violet-500/10 text-violet-300 border border-violet-500/20 rounded px-1.5 py-0.5 font-mono">
+                      <span key={c} className="bg-violet-50 text-violet-700 border border-violet-200 rounded px-1.5 py-0.5 text-xs font-mono">
                         {c}
                       </span>
                     ))}
                   </div>
                 </div>
-              </CardContent>
-            </Card>
+              </div>
+            </div>
           )}
-
-          {/* Blockchain Audit */}
-          <Card className="bg-zinc-900 border-zinc-800 text-zinc-100">
-            <CardHeader className="pb-3">
-              <div className="flex items-center gap-2 text-zinc-300 font-semibold">
-                <Hash className="w-4 h-4 text-amber-400" /> Blockchain Audit
+          {consentsCaptured.length > 0 && (
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+              <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2" style={{ backgroundColor: "#F7F9FC" }}>
+                <Shield className="w-4 h-4 text-teal-600" />
+                <span className="font-semibold text-sm text-gray-700">Captured Consents</span>
               </div>
-            </CardHeader>
-            <CardContent className="space-y-2 font-mono text-xs">
-              <div className="flex items-center gap-2">
-                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${blockchainAudit.live ? "bg-emerald-400" : "bg-amber-400"}`} />
-                <span className="text-zinc-400">{blockchainAudit.network}</span>
-              </div>
-              <div>
-                <span className="text-zinc-500 block">TX Hash</span>
-                <span className="text-amber-400 break-all">{blockchainAudit.txHash}</span>
-              </div>
-              {blockchainAudit.blockNumber && (
-                <div>
-                  <span className="text-zinc-500 block">Block</span>
-                  <span className="text-sky-400">#{blockchainAudit.blockNumber}</span>
-                </div>
-              )}
-              {blockchainAudit.contractAddress && (
-                <div>
-                  <span className="text-zinc-500 block">Contract</span>
-                  <span className="text-indigo-400 break-all">{blockchainAudit.contractAddress}</span>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Audit Trail */}
-          <Card className="bg-zinc-900 border-zinc-800 text-zinc-100">
-            <CardHeader className="pb-3">
-              <div className="flex items-center gap-2 text-zinc-300 font-semibold">
-                <Activity className="w-4 h-4 text-emerald-400" /> Audit Trail
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
-                {auditTrail.map((e, i) => (
-                  <div key={i} className="flex items-start gap-2 text-xs">
-                    <Clock className="w-3 h-3 text-zinc-600 flex-shrink-0 mt-0.5" />
-                    <span className="text-zinc-600">[{new Date(e.time).toLocaleTimeString()}]</span>
-                    <span className="text-emerald-400/80">{e.eventType}</span>
+              <div className="p-4 space-y-2.5">
+                {consentsCaptured.map(c => (
+                  <div key={c} className="flex items-center gap-2 text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+                    <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+                    <span className="text-xs font-medium">{c.replace(/_/g, " ")}</span>
                   </div>
                 ))}
+                <p className="text-xs text-gray-400 flex items-center gap-1 pt-1">
+                  <Lock className="w-3 h-3" /> Consent bundle hashed and logged on-chain
+                </p>
               </div>
-            </CardContent>
-          </Card>
-
-          {/* Consents */}
-          {consentsCaptured.length > 0 && (
-            <Card className="bg-zinc-900 border-zinc-800 text-zinc-100">
-              <CardHeader className="pb-3">
-                <div className="flex items-center gap-2 text-zinc-300 font-semibold">
-                  <Shield className="w-4 h-4 text-teal-400" /> Captured Consents
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-2">
-                  {consentsCaptured.map(c => (
-                    <div key={c} className="flex items-center gap-2 text-xs text-teal-300">
-                      <CheckCircle2 className="w-3 h-3" />
-                      <span>{c.replace(/_/g, " ")}</span>
-                    </div>
-                  ))}
-                  <p className="text-xs text-zinc-500 mt-2 flex items-center gap-1">
-                    <Lock className="w-3 h-3" /> Consent bundle hashed and logged on-chain
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
+            </div>
           )}
-
         </div>
+      )}
 
-        <div className="flex justify-center pt-2">
-          <Button variant="outline" className="bg-zinc-800 hover:bg-zinc-700 border-zinc-700 text-white" onClick={reset}>
-            Start New Verification
-          </Button>
+      {/* OCR result */}
+      {ocrResult && (
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden mb-5">
+          <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2" style={{ backgroundColor: "#F7F9FC" }}>
+            <FileText className="w-4 h-4 text-sky-600" />
+            <span className="font-semibold text-sm text-gray-700">Document OCR Result</span>
+          </div>
+          <div className="p-4 grid grid-cols-3 gap-4 text-sm">
+            <div className="text-center p-3 bg-gray-50 rounded-lg border border-gray-200">
+              <p className="text-gray-500 text-xs mb-1">Extracted Name</p>
+              <p className="font-semibold text-gray-800">{ocrResult.extractedName ?? "—"}</p>
+            </div>
+            <div className="text-center p-3 bg-gray-50 rounded-lg border border-gray-200">
+              <p className="text-gray-500 text-xs mb-1">OCR Confidence</p>
+              <p className="font-semibold text-gray-800">{((ocrResult.ocrConfidence ?? 0) * 100).toFixed(0)}%</p>
+            </div>
+            {ocrResult.nameMatchScore !== null && (
+              <div className="text-center p-3 bg-gray-50 rounded-lg border border-gray-200">
+                <p className="text-gray-500 text-xs mb-1">Name Match</p>
+                <p className={`font-bold ${(ocrResult.nameMatchScore ?? 0) >= 0.6 ? "text-green-700" : "text-red-600"}`}>
+                  {((ocrResult.nameMatchScore ?? 0) * 100).toFixed(0)}%
+                </p>
+              </div>
+            )}
+          </div>
         </div>
+      )}
 
+      {/* Action */}
+      <div className="flex justify-center pt-2">
+        <Button variant="outline" onClick={reset}
+          className="px-8 border-gray-300 text-gray-700 hover:bg-gray-50 font-medium">
+          Start New Application
+        </Button>
       </div>
-    </div>
-  );
-}
-
-// ── Shared sub-components ─────────────────────────────────────────────────────
-
-function Header() {
-  return (
-    <div className="w-full max-w-2xl mb-6 flex items-center justify-center gap-3 text-slate-800">
-      <Building2 className="w-7 h-7 text-primary" />
-      <h1 className="text-2xl font-bold tracking-tight">TrustGate Protocol</h1>
-    </div>
-  );
-}
-
-function NavLinks() {
-  return (
-    <div className="mt-6 flex gap-4 text-sm text-zinc-400">
-      <Link href="/admin" className="hover:text-zinc-600 underline underline-offset-2">Admin Dashboard</Link>
-      <Link href="/verify" className="hover:text-zinc-600 underline underline-offset-2">Verify DID</Link>
-    </div>
+    </Shell>
   );
 }
